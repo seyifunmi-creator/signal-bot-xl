@@ -1,0 +1,35 @@
+name: Build Signal Bot XL
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        if exist requirements.txt pip install -r requirements.txt
+
+    - name: Build .exe with PyInstaller
+      run: |
+        pyinstaller --onefile main.py
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: SignalBotXL-Windows
+        path: dist/*.exe
