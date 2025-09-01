@@ -1,0 +1,27 @@
+
+name: Build Signal Bot XL
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: pip install pyinstaller
+      - name: Build Windows executable
+        run: pyinstaller --onefile main.py --name SignalBotXL.exe
+      - name: Build Mac executable
+        run: pyinstaller --onefile main.py --name SignalBotXL-mac
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: signal-bot-builds
+          path: dist/
