@@ -39,6 +39,16 @@ jobs:
       # 6. Build the .exe with PyInstaller
       - name: Build .exe
         run: pyinstaller --onefile main.py
+
+      - name: Check if .exe exists
+        shell: pwsh
+        run: |
+          if (Test-Path "dist\main.exe") {
+              Write-Host "✅ .exe exists"
+          } else {
+              Write-Host "❌ .exe not found"
+              Get-ChildItem -Recurse
+          }
       
       - name: Commit .exe to repository
         continue-on-error: true
@@ -49,11 +59,4 @@ jobs:
           git commit -m "Add latest build" || echo "No changes to commit"
           git push || echo "Nothing to push"
      
-      - name: Check if .exe exists
-        run: |
-          if [ -f dist/main.exe ]; then
-            echo "✅ .exe exists"
-          else
-            echo "❌ .exe not found"
-          ls -R  # lists all files recursively so you can see what was created
-          fi
+      
