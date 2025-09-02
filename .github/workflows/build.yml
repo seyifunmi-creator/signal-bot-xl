@@ -40,32 +40,26 @@ jobs:
       - name: Build .exe
         run: pyinstaller --onefile main.py
 
-      - name: Show PyInstaller output
+      - name: Detect .exe
         shell: pwsh
+        id: detect
         run: |
-         Get-ChildItem -Recurse
-
-      - name: Check if .exe exists
-        shell: pwsh
-        run: |
-          if (Test-Path "dist\main.exe") {
-              Write-Host "✅ .exe exists"
+          $exe = Get-ChildItem -Recurse -Filter *.exe | Select-Object -First 1
+          if ($exe) {
+            Write-Host "Found .exe: $($exe.FullName)"
+            echo "exe_path=$($exe.FullName)" >> $env:GITHUB_ENV
           } else {
-              Write-Host "❌ .exe not found"
-              Get-ChildItem -Recurse
+            Write-Host "❌ No .exe found"
+            exit 1
           }
-      
-      - name: Commit .exe to repository
-        continue-on-error: true
-        shell: pwsh
-        run: |
+
+      -  name: Commit .exe to repository
+         shell: pwsh
+         continue-on-error: true
+         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          # Adjust the path below based on output from Show all files
-          if (Test-Path "dist\main.exe") {
-              git add dist\main.exe
-              git commit -m "Add latest build of Signal Bot XL" || Write-Host "No changes to commit"
-              git push || Write-Host "Nothing to push"
-          } else {
-              Write-Host "❌ main.exe not found, skipping commit"
-          }
+          $exePath = $env:exe_path
+          git add $exePath
+          git commit -m "Add latest build of Signal Bot XL" || Write-Host "No changes to commit"
+          git push || Write-Host "Nothing to push"
