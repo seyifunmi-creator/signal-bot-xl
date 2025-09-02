@@ -48,3 +48,12 @@ jobs:
           git add dist/main.exe
           git commit -m "Add latest build" || echo "No changes to commit"
           git push || echo "Nothing to push"
+     
+      - name: Check if .exe exists
+        run: |
+          if [ -f dist/main.exe ]; then
+            echo "✅ .exe exists"
+          else
+            echo "❌ .exe not found"
+          ls -R  # lists all files recursively so you can see what was created
+          fi
