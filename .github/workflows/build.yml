@@ -5,28 +5,45 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
+      # 1. Checkout your repository
       - name: Checkout repository
         uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
-        with: 
+        with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
+        with:
+          python-version: '3.11'  # Change if you use another version
 
+      # 3. Upgrade pip
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      # 4. Install dependencies
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-      - name: Build .exe with PyInstaller
+      # 5. Verify files (optional, useful for debugging)
+      - name: List files
+        run: dir
+
+      # 6. Build the .exe with PyInstaller
+      - name: Build .exe
         run: pyinstaller --onefile main.py
 
-      - name: Upload build artifact
+      # 7. Upload the generated .exe as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@87b9624c21f1a58b735ab075e049d9dabdae4782
         with:
-          name: SignalBotXL-Windows
+          name: signalbotxl_windows   # Valid artifact name
           path: dist/main.exe
+         
