@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
         with: 
-          token: ${{ secrets. ACTIONS_PAT }}
+          token: ${{ secrets. ACTIONS_PAT2 }}
       - name: Set up Python
         uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
 
