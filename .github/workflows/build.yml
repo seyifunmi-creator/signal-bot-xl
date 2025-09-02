@@ -41,6 +41,7 @@ jobs:
         run: pyinstaller --onefile main.py
       
       - name: Commit .exe to repository
+        continue-on-error: true
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
