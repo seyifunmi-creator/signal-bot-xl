@@ -11,11 +11,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
         with: 
           token: ${{ secrets. ACTIONS_PAT }}
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
 
       - name: Install dependencies
         run: |
@@ -26,7 +26,7 @@ jobs:
         run: pyinstaller --onefile main.py
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@87b9624c21f1a58b735ab075e049d9dabdae4782
         with:
           name: SignalBotXL-Windows
           path: dist/main.exe
