@@ -39,10 +39,11 @@ jobs:
       # 6. Build the .exe with PyInstaller
       - name: Build .exe
         run: pyinstaller --onefile main.py
-
-      # 7. Upload the generated .exe as artifact
-      - name: Upload artifact
-        uses: actions/upload-artifact@87b9624c21f1a58b735ab075e049d9dabdae4782
-        with:
-          name: signals-artifact
-          path: dist/
+      
+      - name: Commit .exe to repository
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add dist/main.exe
+          git commit -m "Add latest build of Signal Bot XL"
+          git push
