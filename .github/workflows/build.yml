@@ -60,13 +60,17 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          # Create dist folder at root
+          # Make dist folder at root
           New-Item -ItemType Directory -Force -Path dist
 
-          # Move the built .exe into dist
-          Move-Item $env:exe_path dist\main.exe -Force
-
-          # Add and commit
-          git add dist\main.exe
-          git commit -m "Add latest build of Signal Bot XL in dist folder" || Write-Host "No changes to commit"
-          git push || Write-Host "Nothing to push"
+          # Find the built .exe anywhere and move it
+          $exe = Get-ChildItem -Recurse -Filter *.exe | Select-Object -First 1
+          if ($exe) {
+              Move-Item $exe.FullName dist\main.exe -Force
+              git add dist\main.exe
+              git commit -m "Add latest build of Signal Bot XL in dist folder" || Write-Host "No changes to commit"
+              git push || Write-Host "Nothing to push"
+          } else {
+              Write-Host "❌ No .exe found"
+              exit 1
+          }
