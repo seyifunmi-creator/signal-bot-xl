@@ -45,5 +45,5 @@ jobs:
         uses: actions/upload-artifact@87b9624c21f1a58b735ab075e049d9dabdae4782
         with:
           name: signalbotxl   # Valid artifact name
-          path: dist/main.exe
+          path: dist/
          
