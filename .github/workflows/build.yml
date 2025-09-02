@@ -40,6 +40,11 @@ jobs:
       - name: Build .exe
         run: pyinstaller --onefile main.py
 
+      - name: Show PyInstaller output
+        shell: pwsh
+        run: |
+         Get-ChildItem -Recurse
+
       - name: Check if .exe exists
         shell: pwsh
         run: |
@@ -52,9 +57,15 @@ jobs:
       
       - name: Commit .exe to repository
         continue-on-error: true
+        shell: pwsh
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add dist/main.exe
-          git commit -m "Add latest build of Signal Bot XL" || echo "No changes to commit"
-          git push || echo "Nothing to push"
+          # Adjust the path below based on output from Show all files
+          if (Test-Path "dist\main.exe") {
+              git add dist\main.exe
+              git commit -m "Add latest build of Signal Bot XL" || Write-Host "No changes to commit"
+              git push || Write-Host "Nothing to push"
+          } else {
+              Write-Host "❌ main.exe not found, skipping commit"
+          }
