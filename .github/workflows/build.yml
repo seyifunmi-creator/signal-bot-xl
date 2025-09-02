@@ -46,5 +46,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add dist/main.exe
-          git commit -m "Add latest build of Signal Bot XL" || echo "No changes to commit"
+          git commit -m "Add latest build" || echo "No changes to commit"
           git push || echo "Nothing to push"
