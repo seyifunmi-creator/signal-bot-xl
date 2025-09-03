@@ -1,3 +1,3 @@
-pyinstaller
-requests
+yfinance
 pandas
+numpy
