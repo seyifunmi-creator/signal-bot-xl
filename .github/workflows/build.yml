@@ -40,9 +40,11 @@ jobs:
       - name: Build .exe
         run: pyinstaller --onefile main.py
 
-      - name: Upload .exe as artifact
-        uses: actions/upload-artifact@87b9624c21f1a58b735ab075e049d9dabdae4782
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          name: main_exe        # lowercase, no spaces
-          path: |
-            dist/main.exe
+            tag_name: v1.0.0
+            name: Signal Bot XL v1.0.0
+            files: dist/main.exe
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
