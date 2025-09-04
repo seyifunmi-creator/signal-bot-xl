@@ -66,5 +66,5 @@ def main():
 
     input("\nPress Enter to close the program...")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
