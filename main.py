@@ -10,16 +10,26 @@ def generate_signals(pair):
     except Exception as e:
         return f"Error fetching data: {e}"
 
+    # Check for empty or missing data
     if df is None or df.empty:
         return "No data available"
 
-    # Example strategy: simple moving averages
+    # Calculate moving averages
     df['SMA_10'] = df['Close'].rolling(window=10).mean()
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
 
+    # Drop rows with NaN values in SMA columns (ensures clean latest row)
+    df.dropna(subset=['SMA_10', 'SMA_20'], inplace=True)
+
+    if df.empty:
+        return "Insufficient data to generate signals"
+
     latest = df.iloc[-1]
 
-    # Simple example: Buy if SMA_10 > SMA_20, Sell if SMA_10 < SMA_20
+    # Determine action safely
+    if pd.isna(latest['SMA_10']) or pd.isna(latest['SMA_20']):
+        return "Indicators not ready"
+
     if latest['SMA_10'] > latest['SMA_20']:
         action = "BUY"
     elif latest['SMA_10'] < latest['SMA_20']:
