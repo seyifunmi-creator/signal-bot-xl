@@ -17,33 +17,38 @@ def generate_signals(data):
     if data is None or data.empty:
         return None
     
+    # Calculate EMAs
     data['EMA_9'] = data['Close'].ewm(span=9, adjust=False).mean()
     data['EMA_21'] = data['Close'].ewm(span=21, adjust=False).mean()
     
+    # Get the last row
     latest = data.iloc[-1]
-    signal = "HOLD"
 
-    if pd.notna(latest['EMA_9']) and pd.notna(latest['EMA_21']):
-        if latest['EMA_9'] > latest['EMA_21']:
-            signal = "BUY"
-        elif latest['EMA_9'] < latest['EMA_21']:
-            signal = "SELL"
+    # Ensure the latest row has valid numbers
+    if pd.isna(latest['EMA_9']) or pd.isna(latest['EMA_21']) or pd.isna(latest['Close']):
+        return None
 
-    if pd.notna(latest['Close']):
-        if signal == "BUY":
-            tp1 = round(latest['Close'] * 1.001, 3)
-            tp2 = round(latest['Close'] * 1.002, 3)
-            tp3 = round(latest['Close'] * 1.003, 3)
-            tp4 = round(latest['Close'] * 1.004, 3)
-            sl = round(latest['Close'] * 0.998, 3)
-        elif signal == "SELL":
-            tp1 = round(latest['Close'] * 0.999, 3)
-            tp2 = round(latest['Close'] * 0.998, 3)
-            tp3 = round(latest['Close'] * 0.997, 3)
-            tp4 = round(latest['Close'] * 0.996, 3)
-            sl = round(latest['Close'] * 1.002, 3)
-        else:
-            tp1 = tp2 = tp3 = tp4 = sl = "N/A"
+    # Determine signal
+    if float(latest['EMA_9']) > float(latest['EMA_21']):
+        signal = "BUY"
+    elif float(latest['EMA_9']) < float(latest['EMA_21']):
+        signal = "SELL"
+    else:
+        signal = "HOLD"
+
+    # Calculate take-profit and stop-loss levels
+    if signal == "BUY":
+        tp1 = round(latest['Close'] * 1.001, 3)
+        tp2 = round(latest['Close'] * 1.002, 3)
+        tp3 = round(latest['Close'] * 1.003, 3)
+        tp4 = round(latest['Close'] * 1.004, 3)
+        sl = round(latest['Close'] * 0.998, 3)
+    elif signal == "SELL":
+        tp1 = round(latest['Close'] * 0.999, 3)
+        tp2 = round(latest['Close'] * 0.998, 3)
+        tp3 = round(latest['Close'] * 0.997, 3)
+        tp4 = round(latest['Close'] * 0.996, 3)
+        sl = round(latest['Close'] * 1.002, 3)
     else:
         tp1 = tp2 = tp3 = tp4 = sl = "N/A"
 
@@ -62,7 +67,7 @@ def main():
     print("Pairs: XAU/USD, EUR/USD, GBP/USD, USD/JPY, USD/CAD\n")
 
     pairs = {
-        "XAU/USD": "GC=F",
+        "XAU/USD": "GC=F",       # Gold Futures
         "EUR/USD": "EURUSD=X",
         "GBP/USD": "GBPUSD=X",
         "USD/JPY": "USDJPY=X",
