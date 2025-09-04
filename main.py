@@ -21,21 +21,28 @@ def generate_signals(data):
     data['EMA_9'] = data['Close'].ewm(span=9, adjust=False).mean()
     data['EMA_21'] = data['Close'].ewm(span=21, adjust=False).mean()
     
-    # Get the last row
+    # Ensure we have enough rows
+    if len(data) < 2:
+        return None
+
+    # Get the last row safely
     latest = data.iloc[-1]
 
-    # Ensure the latest row has valid numbers
+    # Ensure numeric values
     if pd.isna(latest['EMA_9']) or pd.isna(latest['EMA_21']) or pd.isna(latest['Close']):
         return None
 
-    # Determine signal
-    if float(latest['EMA_9']) > float(latest['EMA_21']):
+    # Explicitly compare values instead of Series
+    ema9 = float(latest['EMA_9'])
+    ema21 = float(latest['EMA_21'])
+
+    if ema9 > ema21:
         signal = "BUY"
-    elif float(latest['EMA_9']) < float(latest['EMA_21']):
+    elif ema9 < ema21:
         signal = "SELL"
     else:
         signal = "HOLD"
-
+        
     # Calculate take-profit and stop-loss levels
     if signal == "BUY":
         tp1 = round(latest['Close'] * 1.001, 3)
