@@ -5,26 +5,28 @@ import datetime
 
 def generate_signals(pair):
     print(f"\nFetching data for {pair}...")
-    try:
-        df = yf.download(pair, period="1d", interval="1h")
-    except Exception as e:
-        return f"Error fetching data: {e}"
 
-    # Check for empty or missing data before doing anything
-    if df is None or df.empty:
-        return "No data available"
+    periods_to_try = ["1d", "5d", "1mo"]
+    df = None
 
-    # Ensure we have at least 20 rows (needed for SMA_20)
-    if len(df) < 20:
-        return "Insufficient data to calculate indicators"
+    for period in periods_to_try:
+        try:
+            df = yf.download(pair, period=period, interval="1h", auto_adjust=True)
+        except Exception as e:
+            return f"Error fetching data: {e}"
+
+        if df is not None and len(df) >= 20:  # enough for SMA_20
+            break
+
+    # Final check: if still not enough
+    if df is None or df.empty or len(df) < 20:
+        return "Not enough data to generate signals"
 
     # Calculate moving averages
     df['SMA_10'] = df['Close'].rolling(window=10).mean()
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
 
-    # Drop rows with NaN in the new columns
     df = df.dropna(subset=['SMA_10', 'SMA_20'])
-
     if df.empty:
         return "Indicators not ready"
 
