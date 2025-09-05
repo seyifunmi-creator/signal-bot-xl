@@ -16,32 +16,37 @@ def generate_signals(pair):
         except Exception as e:
             return f"Error fetching data: {e}"
 
-        if df is not None and len(df) >= 20:  # enough for SMA_20
+        if df is not None and len(df) >= 20:
             print(f"Using data period: {period}")
             break
 
-    # Step 2: If still no usable data
+    # Step 2: Validate data
     if df is None or df.empty or len(df) < 20:
         return "Not enough data to generate signals"
 
-    # Step 3: Safely create moving averages
+    # Step 3: Ensure 'Close' column exists
+    if 'Close' not in df.columns:
+        return "No close price data available"
+
+    # Step 4: Calculate moving averages safely
     df['SMA_10'] = df['Close'].rolling(window=10).mean()
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
 
-    # Step 4: Only drop NaNs if the columns exist
-    if 'SMA_10' in df.columns and 'SMA_20' in df.columns:
-        df = df.dropna(subset=['SMA_10', 'SMA_20'])
+    if 'SMA_10' not in df.columns or 'SMA_20' not in df.columns:
+        return "Indicators could not be calculated"
 
+    df = df.dropna(subset=['SMA_10', 'SMA_20'])
     if df.empty:
         return "Indicators not ready"
 
-    # Step 5: Take the latest valid row
+    # Step 5: Get the latest row
     latest = df.iloc[-1]
 
+    # Step 6: Check for NaN values in latest indicators
     if pd.isna(latest['SMA_10']) or pd.isna(latest['SMA_20']):
         return "Indicators not ready"
 
-    # Step 6: Determine the action
+    # Step 7: Determine action
     if latest['SMA_10'] > latest['SMA_20']:
         action = "BUY"
     elif latest['SMA_10'] < latest['SMA_20']:
