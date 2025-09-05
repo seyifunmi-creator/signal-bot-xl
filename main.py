@@ -9,6 +9,7 @@ def generate_signals(pair):
     periods_to_try = ["1d", "5d", "1mo"]
     df = None
 
+    # Step 1: Try multiple periods until enough data is found
     for period in periods_to_try:
         try:
             df = yf.download(pair, period=period, interval="1h", auto_adjust=True)
@@ -16,25 +17,31 @@ def generate_signals(pair):
             return f"Error fetching data: {e}"
 
         if df is not None and len(df) >= 20:  # enough for SMA_20
+            print(f"Using data period: {period}")
             break
 
-    # Final check: if still not enough
+    # Step 2: If still no usable data
     if df is None or df.empty or len(df) < 20:
         return "Not enough data to generate signals"
 
-    # Calculate moving averages
+    # Step 3: Safely create moving averages
     df['SMA_10'] = df['Close'].rolling(window=10).mean()
     df['SMA_20'] = df['Close'].rolling(window=20).mean()
 
-    df = df.dropna(subset=['SMA_10', 'SMA_20'])
+    # Step 4: Only drop NaNs if the columns exist
+    if 'SMA_10' in df.columns and 'SMA_20' in df.columns:
+        df = df.dropna(subset=['SMA_10', 'SMA_20'])
+
     if df.empty:
         return "Indicators not ready"
 
+    # Step 5: Take the latest valid row
     latest = df.iloc[-1]
 
     if pd.isna(latest['SMA_10']) or pd.isna(latest['SMA_20']):
         return "Indicators not ready"
 
+    # Step 6: Determine the action
     if latest['SMA_10'] > latest['SMA_20']:
         action = "BUY"
     elif latest['SMA_10'] < latest['SMA_20']:
