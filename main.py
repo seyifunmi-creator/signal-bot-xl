@@ -35,15 +35,14 @@ def generate_signals(pair):
     if df.empty:
         return "No sufficient data after cleaning"
 
-    latest = df.iloc[-1]
+    latest = df.iloc[-1].copy()
 
-    # Precision filters
-    trend_up = latest['SMA_10'] > latest['SMA_20']
-    trend_down = latest['SMA_10'] < latest['SMA_20']
-    macd_cross_up = latest['MACD'] > latest['Signal']
-    macd_cross_down = latest['MACD'] < latest['Signal']
-    rsi_ok_long = latest['RSI'] < 70
-    rsi_ok_short = latest['RSI'] > 30
+    trend_up = float(latest['SMA_10']) > float(latest['SMA_20'])
+    trend_down = float(latest['SMA_10']) < float(latest['SMA_20'])
+    macd_cross_up = float(latest['MACD']) > float(latest['Signal'])
+    macd_cross_down = float(latest['MACD']) < float(latest['Signal'])
+    rsi_ok_long = float(latest['RSI']) < 70
+    rsi_ok_short = float(latest['RSI']) > 30
 
     # Decision logic
     action = "HOLD"
