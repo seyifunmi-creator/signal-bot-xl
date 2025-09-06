@@ -6,11 +6,11 @@ import requests
 import os
 import sys
 import subprocess
-import time
 import shutil
+import time
 
 # ---------------- CONFIG ----------------
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 REPO_OWNER = "yourusername"
 REPO_NAME = "precision-bot"
 INSTRUMENTS = ["GC=F", "EURUSD=X", "GBPUSD=X", "JPY=X", "CAD=X"]
@@ -18,7 +18,6 @@ RSI_PERIOD = 14
 PERIOD = "1y"
 INTERVAL = "1h"
 
-# Per-instrument SMA & TP
 instrument_params = {
     "GC=F": {"SMA_SHORT":9, "SMA_LONG":28, "TP1":0.004, "TP2":0.008, "TP3":0.012},
     "EURUSD=X": {"SMA_SHORT":10, "SMA_LONG":30, "TP1":0.005, "TP2":0.01, "TP3":0.015},
@@ -40,9 +39,14 @@ def calculate_rsi(df, period=14):
 
 # ---------------- BACKTEST & TRADING ----------------
 def run_bot(symbol):
-    df = yf.download(symbol, period=PERIOD, interval=INTERVAL, auto_adjust=True)
+    try:
+        df = yf.download(symbol, period=PERIOD, interval=INTERVAL, auto_adjust=True, timeout=60)
+    except Exception as e:
+        print(f"Download failed for {symbol}: {e}")
+        return None
+
     if df.empty:
-        print(f"No data for {symbol}")
+        print(f"No data for {symbol}, skipping...")
         return None
 
     params = instrument_params[symbol]
@@ -72,8 +76,10 @@ def run_bot(symbol):
         rsi = latest['RSI'] if pd.notna(latest['RSI']) else np.nan
 
         if np.isnan(price) or np.isnan(sma_short) or np.isnan(sma_long) or np.isnan(rsi):
-            signal = "HOLD"
-        elif sma_short > sma_long and rsi < 70:
+            continue  # skip this row
+
+        # Signal logic
+        if sma_short > sma_long and rsi < 70:
             signal = "BUY"
         elif sma_short < sma_long and rsi > 30:
             signal = "SELL"
