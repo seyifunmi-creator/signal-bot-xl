@@ -64,12 +64,12 @@ def run_bot(symbol):
     cumulative_profit = 0
 
     for i in range(len(df)):
-        latest = df.iloc[i:i+1]
+        latest = df.iloc[i]  # single row as Series
 
-        price = latest['Close'].iloc[0] if not latest['Close'].isna().all() else np.nan
-        sma_short = latest['SMA_SHORT'].iloc[0] if not latest['SMA_SHORT'].isna().all() else np.nan
-        sma_long = latest['SMA_LONG'].iloc[0] if not latest['SMA_LONG'].isna().all() else np.nan
-        rsi = latest['RSI'].iloc[0] if not latest['RSI'].isna().all() else np.nan
+        price = latest['Close'] if pd.notna(latest['Close']) else np.nan
+        sma_short = latest['SMA_SHORT'] if pd.notna(latest['SMA_SHORT']) else np.nan
+        sma_long = latest['SMA_LONG'] if pd.notna(latest['SMA_LONG']) else np.nan
+        rsi = latest['RSI'] if pd.notna(latest['RSI']) else np.nan
 
         if np.isnan(price) or np.isnan(sma_short) or np.isnan(sma_long) or np.isnan(rsi):
             signal = "HOLD"
