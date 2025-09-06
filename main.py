@@ -10,7 +10,7 @@ import shutil
 import time
 
 # ---------------- CONFIG ----------------
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 REPO_OWNER = "yourusername"
 REPO_NAME = "precision-bot"
 INSTRUMENTS = ["GC=F", "EURUSD=X", "GBPUSD=X", "JPY=X", "CAD=X"]
@@ -49,8 +49,7 @@ def run_bot(symbol):
         print(f"No data for {symbol}, skipping...")
         return None
 
-    required_cols = ['Close']
-    for col in required_cols:
+    for col in ['Close']:
         if col not in df.columns:
             print(f"{col} missing in {symbol}, skipping...")
             return None
@@ -74,14 +73,17 @@ def run_bot(symbol):
     cumulative_profit = 0
 
     for i in range(len(df)):
-        latest = df.iloc[i]  # single row as Series
+        latest = df.iloc[i]
 
-        price = latest['Close'] if pd.notna(latest['Close']) else np.nan
-        sma_short = latest['SMA_SHORT'] if pd.notna(latest['SMA_SHORT']) else np.nan
-        sma_long = latest['SMA_LONG'] if pd.notna(latest['SMA_LONG']) else np.nan
-        rsi = latest['RSI'] if pd.notna(latest['RSI']) else np.nan
+        # Convert all values to scalars using .item()
+        try:
+            price = latest['Close'].item() if pd.notna(latest['Close']) else np.nan
+            sma_short = latest['SMA_SHORT'].item() if pd.notna(latest['SMA_SHORT']) else np.nan
+            sma_long = latest['SMA_LONG'].item() if pd.notna(latest['SMA_LONG']) else np.nan
+            rsi = latest['RSI'].item() if pd.notna(latest['RSI']) else np.nan
+        except:
+            continue  # skip row if any conversion fails
 
-        # Skip rows with missing data
         if np.isnan(price) or np.isnan(sma_short) or np.isnan(sma_long) or np.isnan(rsi):
             continue
 
@@ -146,14 +148,11 @@ def run_bot(symbol):
             entry_price = 0
             tp_flags = [False, False, False]
 
-    # Accuracy
     accuracy = tp_hits[2]/len(trades)*100 if trades else 0
     print(f"\n{symbol} Summary: Total trades {len(trades)}, TP3 hits {tp_hits[2]}, Accuracy {accuracy:.2f}%")
 
-    # Log trades
     log_trades(symbol, trades, accuracy, cumulative_profit)
 
-    # Auto-update if accuracy < 75%
     if accuracy < 75:
         print("Accuracy below 75% → Checking for updates...")
         auto_update_and_restart()
@@ -174,7 +173,7 @@ def auto_update_and_restart():
     try:
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
         response = requests.get(url).json()
-        latest_version = response['tag_name']
+        latest_version = response.get('tag_name')
         if latest_version != VERSION and response.get('assets'):
             asset_url = response['assets'][0]['browser_download_url']
             print(f"Downloading new version {latest_version}...")
@@ -184,7 +183,6 @@ def auto_update_and_restart():
                 f.write(r.content)
             print("Downloaded new main.exe")
 
-            # Replace old exe and restart
             current_exe = sys.executable
             backup = current_exe + ".bak"
             shutil.move(current_exe, backup)
@@ -196,6 +194,6 @@ def auto_update_and_restart():
         print(f"Auto-update failed: {e}")
 
 # ---------------- MAIN LOOP ----------------
-if __name__== "__main__":
+if __name__ == "__main__":
     for symbol in INSTRUMENTS:
         run_bot(symbol)
