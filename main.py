@@ -1,199 +1,266 @@
-# main.py
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import requests
+# option3_fixed.py
+"""
+Option 3 - Fixed implementation with semi-automatic update protection.
+
+Drop this into your project (replace your previous option 3 file).
+Requires:
+  - pandas
+  - yfinance
+  - python-dateutil (usually with pandas)
+  - optional: git in PATH if you want git-based protection
+
+Logging:
+  - Trades / TP hits are appended to signals_log.csv (file created if missing).
+  - Configure behavior via config.json (see default below) or environment variables.
+
+Update protection:
+  - Uses config.json key "UPDATE_PROTECT": true/false
+  - Or presence of file ".update_protect" in repo root
+  - If git present, additionally requires git status --porcelain to be empty to auto-update.
+"""
+
 import os
-import sys
+import json
+import csv
 import subprocess
-import shutil
-import time
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+import yfinance as yf
 
-# ---------------- CONFIG ----------------
-VERSION = "1.1.3"
-REPO_OWNER = "yourusername"
-REPO_NAME = "precision-bot"
-INSTRUMENTS = ["GC=F", "EURUSD=X", "GBPUSD=X", "JPY=X", "CAD=X"]
-RSI_PERIOD = 14
-PERIOD = "1y"
-INTERVAL = "1h"
+CONFIG_PATH = Path("config.json")
+LOG_CSV = Path("signals_log.csv")
+UPDATE_PROTECT_FLAG = Path(".update_protect")
 
-instrument_params = {
-    "GC=F": {"SMA_SHORT":9, "SMA_LONG":28, "TP1":0.004, "TP2":0.008, "TP3":0.012},
-    "EURUSD=X": {"SMA_SHORT":10, "SMA_LONG":30, "TP1":0.005, "TP2":0.01, "TP3":0.015},
-    "GBPUSD=X": {"SMA_SHORT":9, "SMA_LONG":28, "TP1":0.0045, "TP2":0.009, "TP3":0.0135},
-    "JPY=X": {"SMA_SHORT":10, "SMA_LONG":32, "TP1":0.0035, "TP2":0.007, "TP3":0.01},
-    "CAD=X": {"SMA_SHORT":9, "SMA_LONG":30, "TP1":0.004, "TP2":0.008, "TP3":0.012}
+
+DEFAULT_CONFIG = {
+    "UPDATE_PROTECT": True,
+    "YF_PERIOD": "7d",
+    "YF_INTERVAL": "1m",
+    "TP_THRESHOLDS": [0.002, 0.005, 0.01],  # example fractions (0.2%, 0.5%, 1%)
+    "PAIR": "EURUSD=X",
+    "PAPER_TRADING": True,
+    "VERBOSE": True
 }
 
-# ---------------- RSI CALC ----------------
-def calculate_rsi(df, period=14):
-    delta = df['Close'].diff()
-    gain = delta.where(delta>0,0)
-    loss = -delta.where(delta<0,0)
-    avg_gain = gain.rolling(window=period).mean()
-    avg_loss = loss.rolling(window=period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
 
-# ---------------- BACKTEST & TRADING ----------------
-def run_bot(symbol):
-    try:
-        df = yf.download(symbol, period=PERIOD, interval=INTERVAL, auto_adjust=True, timeout=60)
-    except Exception as e:
-        print(f"Download failed for {symbol}: {e}")
-        return None
-
-    if df.empty:
-        print(f"No data for {symbol}, skipping...")
-        return None
-
-    for col in ['Close']:
-        if col not in df.columns:
-            print(f"{col} missing in {symbol}, skipping...")
-            return None
-
-    params = instrument_params[symbol]
-    SMA_SHORT = params["SMA_SHORT"]
-    SMA_LONG = params["SMA_LONG"]
-    TP1 = params["TP1"]
-    TP2 = params["TP2"]
-    TP3 = params["TP3"]
-
-    df['SMA_SHORT'] = df['Close'].rolling(SMA_SHORT).mean()
-    df['SMA_LONG'] = df['Close'].rolling(SMA_LONG).mean()
-    df['RSI'] = calculate_rsi(df, RSI_PERIOD)
-
-    trades = []
-    position = None
-    entry_price = 0
-    tp_hits = [0,0,0]
-    tp_flags = [False, False, False]
-    cumulative_profit = 0
-
-    for i in range(len(df)):
-        latest = df.iloc[i]
-
-        # Convert all values to scalars using .item()
+def load_config():
+    cfg = DEFAULT_CONFIG.copy()
+    if CONFIG_PATH.exists():
         try:
-            price = latest['Close'].item() if pd.notna(latest['Close']) else np.nan
-            sma_short = latest['SMA_SHORT'].item() if pd.notna(latest['SMA_SHORT']) else np.nan
-            sma_long = latest['SMA_LONG'].item() if pd.notna(latest['SMA_LONG']) else np.nan
-            rsi = latest['RSI'].item() if pd.notna(latest['RSI']) else np.nan
-        except:
-            continue  # skip row if any conversion fails
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+            cfg.update(user_cfg)
+        except Exception as e:
+            print(f"[WARN] Failed to read config.json: {e} — using defaults.")
+    return cfg
 
-        if np.isnan(price) or np.isnan(sma_short) or np.isnan(sma_long) or np.isnan(rsi):
-            continue
 
-        # Signal logic
-        if sma_short > sma_long and rsi < 70:
-            signal = "BUY"
-        elif sma_short < sma_long and rsi > 30:
-            signal = "SELL"
-        else:
-            signal = "HOLD"
-
-        # Open BUY
-        if signal == "BUY" and position != "BUY":
-            position = "BUY"
-            entry_price = price
-            trades.append({'type':'BUY','entry':entry_price,'exit':None,'profit':0})
-            tp_flags = [False, False, False]
-            print(f"OPEN BUY at {entry_price:.2f}")
-
-        # Open SELL
-        elif signal == "SELL" and position != "SELL":
-            position = "SELL"
-            entry_price = price
-            trades.append({'type':'SELL','entry':entry_price,'exit':None,'profit':0})
-            tp_flags = [False, False, False]
-            print(f"OPEN SELL at {entry_price:.2f}")
-
-        # Check TPs for BUY
-        if position == "BUY":
-            tp_levels = [entry_price*(1+TP1), entry_price*(1+TP2), entry_price*(1+TP3)]
-            for j in range(3):
-                if price >= tp_levels[j] and not tp_flags[j]:
-                    tp_hits[j] += 1
-                    tp_flags[j] = True
-                    print(f"HIT TP{j+1} at {price:.2f}")
-
-        # Check TPs for SELL
-        if position == "SELL":
-            tp_levels = [entry_price*(1-TP1), entry_price*(1-TP2), entry_price*(1-TP3)]
-            for j in range(3):
-                if price <= tp_levels[j] and not tp_flags[j]:
-                    tp_hits[j] += 1
-                    tp_flags[j] = True
-                    print(f"HIT TP{j+1} at {price:.2f}")
-
-        # Close positions if opposite signal
-        if position == "BUY" and signal == "SELL":
-            trades[-1]['exit'] = price
-            trades[-1]['profit'] = price - entry_price
-            cumulative_profit += trades[-1]['profit']
-            print(f"CLOSE BUY at {price:.2f} | Profit: {trades[-1]['profit']:.2f}")
-            position = None
-            entry_price = 0
-            tp_flags = [False, False, False]
-
-        elif position == "SELL" and signal == "BUY":
-            trades[-1]['exit'] = price
-            trades[-1]['profit'] = entry_price - price
-            cumulative_profit += trades[-1]['profit']
-            print(f"CLOSE SELL at {price:.2f} | Profit: {trades[-1]['profit']:.2f}")
-            position = None
-            entry_price = 0
-            tp_flags = [False, False, False]
-
-    accuracy = tp_hits[2]/len(trades)*100 if trades else 0
-    print(f"\n{symbol} Summary: Total trades {len(trades)}, TP3 hits {tp_hits[2]}, Accuracy {accuracy:.2f}%")
-
-    log_trades(symbol, trades, accuracy, cumulative_profit)
-
-    if accuracy < 75:
-        print("Accuracy below 75% → Checking for updates...")
-        auto_update_and_restart()
-
-    return accuracy
-
-# ---------------- LOGGING ----------------
-def log_trades(symbol, trades, accuracy, cumulative_profit):
-    log_file = f"{symbol.replace('=','')}_log.csv"
-    df_log = pd.DataFrame(trades)
-    df_log['accuracy'] = accuracy
-    df_log['cumulative_profit'] = cumulative_profit
-    df_log.to_csv(log_file, index=False)
-    print(f"Logged trades to {log_file}")
-
-# ---------------- AUTO-UPDATE + RESTART ----------------
-def auto_update_and_restart():
+def is_git_clean():
+    """Return True if git is available and working tree is clean (no uncommitted changes)."""
     try:
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-        response = requests.get(url).json()
-        latest_version = response.get('tag_name')
-        if latest_version != VERSION and response.get('assets'):
-            asset_url = response['assets'][0]['browser_download_url']
-            print(f"Downloading new version {latest_version}...")
-            r = requests.get(asset_url)
-            new_file = "main_new.exe"
-            with open(new_file, "wb") as f:
-                f.write(r.content)
-            print("Downloaded new main.exe")
+        res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=False)
+        if res.returncode != 0:
+            # git not initialized or error; return False to be safe (prevent auto-update)
+            return False
+        return res.stdout.strip() == ""
+    except FileNotFoundError:
+        # git not installed / not available
+        return False
+    except Exception:
+        return False
 
-            current_exe = sys.executable
-            backup = current_exe + ".bak"
-            shutil.move(current_exe, backup)
-            shutil.move(new_file, current_exe)
-            print("Updated and restarting bot...")
-            subprocess.Popen([current_exe])
-            sys.exit()
+
+def update_allowed(cfg):
+    """Return True if it's safe to auto-update/deploy."""
+    # 1) If config explicitly disables protection, allow.
+    if not cfg.get("UPDATE_PROTECT", True):
+        return True
+    # 2) If the .update_protect file exists, block updates.
+    if UPDATE_PROTECT_FLAG.exists():
+        if cfg.get("VERBOSE"):
+            print("[INFO] Update blocked: .update_protect file present.")
+        return False
+    # 3) If git is available, ensure working tree is clean.
+    if is_git_clean():
+        return True
+    else:
+        if cfg.get("VERBOSE"):
+            print("[INFO] Update blocked: git working tree not clean or git not available.")
+        return False
+
+
+def safe_yf_download(pair, period, interval):
+    """
+    Downloads data using yfinance with explicit parameters and returns a DataFrame.
+    Defensive: always returns a DataFrame (possibly empty).
+    """
+    # Avoid ambiguity when auto_adjust default changes: set arguments explicitly
+    df = yf.download(pair, period=period, interval=interval, auto_adjust=True, threads=True, progress=False)
+    if df is None:
+        return pd.DataFrame()
+    return df
+
+
+def detect_signal(df: pd.DataFrame):
+    """
+    Placeholder signal detection for "option 3".
+    Replace with your strategy logic.
+    Returns a list of candidate signals, each dict containing:
+      { 'timestamp', 'side' ('buy'/'sell'), 'entry', 'tps': [tp1, tp2, tp3], 'stop_loss' }
+    """
+    signals = []
+    if df.empty:
+        return signals
+
+    # Example: simple momentum signal: if last candle closes higher than previous by > threshold
+    if len(df) < 2:
+        return signals
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    # Use numeric operations; don't do 'if df' which raises ValueError
+    if (last['Close'] - prev['Close']) / prev['Close'] > 0.002:  # 0.2% up-move
+        entry = last['Close']
+        tps = [entry * (1 + p) for p in cfg.get("TP_THRESHOLDS", DEFAULT_CONFIG["TP_THRESHOLDS"])]
+        signals.append({
+            'timestamp': last.name.isoformat() if hasattr(last.name, 'isoformat') else str(last.name),
+            'side': 'buy',
+            'entry': float(entry),
+            'tps': [float(x) for x in tps],
+            'stop_loss': float(entry * 0.998),  # example 0.2% SL
+        })
+    return signals
+
+
+def append_log(trade_record: dict):
+    headers = ['timestamp', 'pair', 'side', 'entry', 'tps', 'stop_loss', 'status', 'notes', 'logged_at']
+    write_header = not LOG_CSV.exists()
+    with LOG_CSV.open("a", newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        if write_header:
+            writer.writeheader()
+        row = {k: trade_record.get(k, "") for k in headers}
+        # ensure lists are stringified
+        if isinstance(row.get('tps'), (list, tuple)):
+            row['tps'] = json.dumps(row['tps'])
+        row['logged_at'] = datetime.utcnow().isoformat()
+        writer.writerow(row)
+
+
+def check_tp_hits(market_price: float, trade_record: dict):
+    """
+    Given a live market price and a trade record (with 'tps' list and a 'status' field),
+    detect if any TP was hit and return updated trade_record and list of hits.
+    """
+    hits = []
+    tps = trade_record.get('tps', [])
+    side = trade_record.get('side', 'buy')
+    remaining_tps = []
+    for tp in tps:
+        if side == 'buy':
+            if market_price >= tp:
+                hits.append(tp)
+            else:
+                remaining_tps.append(tp)
+        else:
+            if market_price <= tp:
+                hits.append(tp)
+            else:
+                remaining_tps.append(tp)
+    trade_record['tps'] = remaining_tps
+    # update status
+    if hits:
+        trade_record['status'] = 'partial_tp_hit' if remaining_tps else 'all_tp_hit'
+    return trade_record, hits
+
+
+def simulate_paper_trade(signals, cfg):
+    """
+    Simulate / paper-trade signals. For each signal, we log the entry and monitor ticks
+    (here represented by last close) to check TP hits. Replace this with your real
+    execution/paper-trade backend if needed.
+    """
+    for sig in signals:
+        record = {
+            'timestamp': sig['timestamp'],
+            'pair': cfg.get('PAIR'),
+            'side': sig['side'],
+            'entry': sig['entry'],
+            'tps': sig['tps'],
+            'stop_loss': sig['stop_loss'],
+            'status': 'open',
+            'notes': 'simulated paper trade'
+        }
+        # Log initial order
+        append_log(record)
+        if cfg.get("VERBOSE"):
+            print(f"[PAPER] Logged new trade: entry={record['entry']}, tps={record['tps']}")
+
+        # In real system: subscribe to live ticks / websocket. Here we'll re-evaluate with latest candle
+        # For this example we'll fetch the latest close and treat it as the current market price.
+        df_latest = safe_yf_download(cfg.get("PAIR"), period="1d", interval="1m")
+        if not df_latest.empty:
+            current_price = float(df_latest['Close'].iloc[-1])
+            record, hits = check_tp_hits(current_price, record)
+            if hits and cfg.get("VERBOSE"):
+                print(f"[PAPER] TP(s) hit for trade at {record['timestamp']}: {hits}")
+            append_log(record)  # append an update row (you can change behavior to update in-place if desired)
+
+
+def main_option3():
+    global cfg
+    cfg = load_config()
+    if cfg.get("VERBOSE"):
+        print(f"[INFO] Running Option 3 - pair={cfg.get('PAIR')} period={cfg.get('YF_PERIOD')}")
+
+    # Update protection check (if this module is used for auto-updating / deploying)
+    if not update_allowed(cfg):
+        if cfg.get("VERBOSE"):
+            print("[INFO] Auto-update disabled by protection rules. Proceeding with signal generation only.")
+    else:
+        if cfg.get("VERBOSE"):
+            print("[INFO] Update allowed by protection rules (no blocking flags detected).")
+
+    # Fetch market data (defensive)
+    try:
+        df = safe_yf_download(cfg.get("PAIR"), period=cfg.get("YF_PERIOD"), interval=cfg.get("YF_INTERVAL"))
     except Exception as e:
-        print(f"Auto-update failed: {e}")
+        print(f"[ERROR] Failed to fetch market data: {e}")
+        df = pd.DataFrame()
 
-# ---------------- MAIN LOOP ----------------
+    # Run signal detection
+    try:
+        signals = detect_signal(df)
+    except Exception as e:
+        print(f"[ERROR] Signal detection failed: {e}")
+        signals = []
+
+    if not signals:
+        if cfg.get("VERBOSE"):
+            print("[INFO] No signals generated at this time.")
+        return
+
+    # Execute or simulate trades
+    if cfg.get("PAPER_TRADING", True):
+        simulate_paper_trade(signals, cfg)
+    else:
+        # Hook to real execution function
+        for s in signals:
+            # TODO: integrate with real execution code
+            append_log({
+                'timestamp': s['timestamp'],
+                'pair': cfg.get('PAIR'),
+                'side': s['side'],
+                'entry': s['entry'],
+                'tps': s['tps'],
+                'stop_loss': s['stop_loss'],
+                'status': 'sent_to_broker',
+                'notes': 'sent to execution (placeholder)'
+            })
+            if cfg.get("VERBOSE"):
+                print(f"[EXEC] Sent trade to broker (placeholder): {s}")
+
 if __name__ == "__main__":
-    for symbol in INSTRUMENTS:
-        run_bot(symbol)
+    main_option3()
