@@ -1,5 +1,7 @@
 {
-  "PAIRS": ["CADX", "JPYX", "GBPUSDX", "EURUSDX", "GC=F"],
+  
+  "PAIRS": ["CAD=X", "JPY=X", "GBPUSD=X", "EURUSD=X", "GC=F"]
+}
 
   "TRADE_SETTINGS": {
     "TP1_PIPS": 40,
