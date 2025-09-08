@@ -1,17 +1,17 @@
 {
-  
-  "PAIRS": ["CAD=X", "JPY=X", "GBPUSD=X", "EURUSD=X", "GC=F"]
-}
-
+  "UPDATE_PROTECT": true,
+  "PAIRS": ["CAD=X", "JPY=X", "GBPUSD=X", "EURUSD=X", "GC=F"],
+  "YF_PERIOD": "3d",
+  "YF_INTERVAL": "1m",
   "TRADE_SETTINGS": {
     "TP1_PIPS": 40,
     "TP2_PIPS": 40,
     "TP3_PIPS": 40,
     "STOP_LOSS_PIPS": 50
   },
-
-  "LOG_FILE": "signals_log.csv",
-  "SLEEP_INTERVAL": 900,
-  "UPDATE_PROTECT": true,
-  "PAPER_TRADING": true
+  "PAPER_TRADING": true,
+  "VERBOSE": true,
+  "MONITOR_SLEEP": 900,
+  "MAX_RETRIES": 3,
+  "SIGNAL_COOLDOWN_SECONDS": 5
 }
