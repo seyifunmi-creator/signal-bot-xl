@@ -509,10 +509,10 @@ def run_bot():
 
 
         time.sleep(SLEEP_INTERVAL)
+        # ===========================
+        # Entry point
+        # ===========================
+        if __name__ == "__main__":
+            print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
+            run_bot()
 
-
-
-
-if __name__ == '__main__':
-print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
-run_bot()
