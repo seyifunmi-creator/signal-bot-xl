@@ -1,18 +1,24 @@
+import sys
+import os
 import json
 import pandas as pd
 import yfinance as yf
 import time
-import os
 import warnings
 from datetime import datetime
 
 # Suppress FutureWarnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# --- Ensure config.json is always found ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- Determine base folder depending on how the script is run ---
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)  # Folder of the .exe
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(_file_))  # Folder of the .py script
+
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
+# --- Load config ---
 with open(CONFIG_PATH) as f:
     config = json.load(f)
 
@@ -27,7 +33,7 @@ VERBOSE = config.get("VERBOSE", True)
 
 LOG_FILE = os.path.join(BASE_DIR, "trade_log.csv")
 
-# Create log if not exists
+# Create trade log if not exists
 if not os.path.exists(LOG_FILE):
     df_log = pd.DataFrame(columns=[
         "Timestamp", "Pair", "Signal", "Entry", "TP1_hit", "TP2_hit", "TP3_hit", "SL_hit"
@@ -35,7 +41,6 @@ if not os.path.exists(LOG_FILE):
     df_log.to_csv(LOG_FILE, index=False)
 
 # --- Bot Functions ---
-
 def fetch_data(pair):
     try:
         df = yf.download(pair, period=config["YF_PERIOD"], interval=config["YF_INTERVAL"])
@@ -49,26 +54,23 @@ def fetch_data(pair):
 
 def precision_signal(df):
     """
-    Original bot's logic fully integrated with enhancements:
+    Fully integrated original precision bot logic:
     EMA9/EMA21 crossover, EMA50 trend filter, RSI filter
     """
     close = df['Close']
     if len(close) < 50:
         return None, None
 
-    # EMA calculations
     ema9 = close.ewm(span=9, adjust=False).mean()
     ema21 = close.ewm(span=21, adjust=False).mean()
     ema50 = close.ewm(span=50, adjust=False).mean()
 
-    # RSI calculation
     delta = close.diff().dropna()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
     rs = gain / loss.replace(0, 0.0001)
     rsi = 100 - (100 / (1 + rs))
 
-    # Last values
     last_close = close.iloc[-1].item()
     prev_close = close.iloc[-2].item()
     last_ema9 = ema9.iloc[-1].item()
