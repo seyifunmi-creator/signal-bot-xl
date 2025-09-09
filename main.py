@@ -10,7 +10,7 @@ from datetime import datetime
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # --- Ensure config.json is always found ---
-BASE_DIR = os.path.dirname(os.path.abspath(_file_))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
 with open(CONFIG_PATH) as f:
