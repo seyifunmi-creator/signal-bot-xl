@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 
 # ===========================
-# Embedded Configuration
+# Configuration
 # ===========================
 PAIRS = ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCAD=X', 'GC=F']
 PAIR_NAMES = {
@@ -19,8 +19,9 @@ TP1 = 40
 TP2 = 40
 TP3 = 40
 SL = 50
-SLEEP_INTERVAL = 60  # seconds between updates
+SLEEP_INTERVAL = 60  # seconds
 CSV_FILE = "trades_log.csv"
+TEST_MODE = True  # True = test trades, False = live EMA/RSI
 
 # ===========================
 # Bot State
@@ -43,7 +44,7 @@ def fetch_data(pair, interval='1m', period='3d'):
         up, down = delta.clip(lower=0), -1*delta.clip(upper=0)
         roll_up = up.rolling(14).mean()
         roll_down = down.rolling(14).mean()
-        df['RSI'] = 100 - (100 / (1 + roll_up / (roll_down + 1e-8)))  # prevent div by zero
+        df['RSI'] = 100 - (100 / (1 + roll_up / (roll_down + 1e-8)))
         return df
     except Exception as e:
         print(f"[ERROR] Failed to fetch {pair}: {e}")
@@ -61,49 +62,69 @@ def generate_signal(df):
         return None
     last = df.iloc[-1]
     prev = df.iloc[-2]
-
     ema5_last = last['EMA5'].item()
     ema12_last = last['EMA12'].item()
     ema5_prev = prev['EMA5'].item()
     ema12_prev = prev['EMA12'].item()
     rsi_last = last['RSI'].item()
 
-    if ema5_prev < ema12_prev and ema5_last > ema12_last and rsi_last < 70:
+    if ema5_prev < ema12_prev and ema5_last > ema12_prev and rsi_last < 70:
         return 'BUY'
     elif ema5_prev > ema12_prev and ema5_last < ema12_prev and rsi_last > 30:
         return 'SELL'
     else:
         return None
 
-def open_trade(pair, signal, current_price):
+def calculate_atr(df, period=14):
+    df['H-L'] = df['High'] - df['Low']
+    df['H-PC'] = abs(df['High'] - df['Close'].shift(1))
+    df['L-PC'] = abs(df['Low'] - df['Close'].shift(1))
+    df['TR'] = df[['H-L','H-PC','L-PC']].max(axis=1)
+    atr = df['TR'].rolling(period).mean()
+    return atr.iloc[-1].item() if not atr.empty else None
+
+def open_trade(pair, signal, current_price, df=None):
+    # Determine pip unit
     pip_unit = 0.0001
     if 'JPY' in pair:
         pip_unit = 0.01
     elif pair == 'GC=F':
         pip_unit = 0.1
 
+    # ATR-based TP/SL
+    atr = calculate_atr(df) if df is not None else None
+    if atr is not None:
+        tp1_val = atr
+        tp2_val = atr * 2
+        tp3_val = atr * 3
+        sl_val = atr * 1.25
+    else:
+        tp1_val = TP1 * pip_unit
+        tp2_val = (TP1+TP2) * pip_unit
+        tp3_val = (TP1+TP2+TP3) * pip_unit
+        sl_val = SL * pip_unit
+
     active_trades[pair] = {
         'Pair': pair,
         'Signal': signal,
         'Entry': current_price,
-        'TP1': current_price + TP1*pip_unit if signal=='BUY' else current_price - TP1*pip_unit,
-        'TP2': current_price + (TP1+TP2)*pip_unit if signal=='BUY' else current_price - (TP1+TP2)*pip_unit,
-        'TP3': current_price + (TP1+TP2+TP3)*pip_unit if signal=='BUY' else current_price - (TP1+TP2+TP3)*pip_unit,
-        'SL': current_price - SL*pip_unit if signal=='BUY' else current_price + SL*pip_unit,
+        'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
+        'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
+        'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
+        'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
         'TP1_hit': False,
         'TP2_hit': False,
         'TP3_hit': False,
         'SL_hit': False,
         'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
-    print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")  # cyan
+    print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
 
 def compute_live_pnl(trade, current_price):
     pip_factor = 10000 if 'JPY' not in trade['Pair'] else 100
     return (current_price - trade['Entry']) * pip_factor if trade['Signal']=='BUY' else (trade['Entry'] - current_price) * pip_factor
 
 def log_trade_to_csv(trade):
-    """Append a closed trade to CSV with safe header creation."""
     df = pd.DataFrame([{
         'Pair': PAIR_NAMES[trade['Pair']],
         'Signal': trade['Signal'],
@@ -117,8 +138,6 @@ def log_trade_to_csv(trade):
         'Close_Time': trade['Close_Time'],
         'P/L': compute_live_pnl(trade, trade['Close_Price'])
     }])
-    
-    # If file exists, append without header; else write header
     if not os.path.isfile(CSV_FILE):
         df.to_csv(CSV_FILE, mode='w', header=True, index=False)
     else:
@@ -129,7 +148,7 @@ def check_trades(pair, current_price):
         return
     trade = active_trades[pair]
 
-    # TP/SL checks
+    # Check TPs/SL
     if not trade['TP1_hit'] and ((trade['Signal']=='BUY' and current_price >= trade['TP1']) or (trade['Signal']=='SELL' and current_price <= trade['TP1'])):
         trade['TP1_hit'] = True
     if not trade['TP2_hit'] and ((trade['Signal']=='BUY' and current_price >= trade['TP2']) or (trade['Signal']=='SELL' and current_price <= trade['TP2'])):
@@ -139,18 +158,17 @@ def check_trades(pair, current_price):
     if not trade['SL_hit'] and ((trade['Signal']=='BUY' and current_price <= trade['SL']) or (trade['Signal']=='SELL' and current_price >= trade['SL'])):
         trade['SL_hit'] = True
 
-    # Close trade if all TP hit or SL hit
     if (trade['TP1_hit'] and trade['TP2_hit'] and trade['TP3_hit']) or trade['SL_hit']:
         trade['Close_Price'] = current_price
         trade['Close_Time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         closed_trades.append(trade)
         log_trade_to_csv(trade)
         del active_trades[pair]
-        # Color coded win/loss
-        if ((trade['Signal']=='BUY' and trade['Close_Price'] > trade['Entry']) or (trade['Signal']=='SELL' and trade['Close_Price'] < trade['Entry'])):
-            print(f"\033[92m[TRADE CLOSED - WIN] {PAIR_NAMES[pair]} {trade['Signal']} @ {trade['Close_Price']:.5f}\033[0m")  # green
+        # Color-coded result
+        if ((trade['Signal']=='BUY' and trade['Close_Price']>trade['Entry']) or (trade['Signal']=='SELL' and trade['Close_Price']<trade['Entry'])):
+            print(f"\033[92m[TRADE CLOSED - WIN] {PAIR_NAMES[pair]} {trade['Signal']} @ {trade['Close_Price']:.5f}\033[0m")
         else:
-            print(f"\033[91m[TRADE CLOSED - LOSS] {PAIR_NAMES[pair]} {trade['Signal']} @ {trade['Close_Price']:.5f}\033[0m")  # red
+            print(f"\033[91m[TRADE CLOSED - LOSS] {PAIR_NAMES[pair]} {trade['Signal']} @ {trade['Close_Price']:.5f}\033[0m")
 
 # ===========================
 # Dashboard
@@ -192,13 +210,10 @@ def display_dashboard():
     recent = closed_trades[-5:] if len(closed_trades) >= 5 else closed_trades
     if recent:
         for t in recent:
-            pnl = (t['Close_Price']-t['Entry'])*10000 if t['Signal']=='BUY' else (t['Entry']-t['Close_Price'])*10000
+            pnl = compute_live_pnl(t, t['Close_Price'])
             color = "\033[92m" if pnl>=0 else "\033[91m"
             reset = "\033[0m"
-            print(f"  {PAIR_NAMES[t['Pair']]} | {t['Signal']} | Entry: {t['Entry']:.5f} | Close: {t['Close_Price']:.5f} | "
-                  f"P/L: {color}{pnl:.2f} pips{reset} | Opened: {t['Entry_Time']} | Closed: {t['Close_Time']}")
-    else:
-        print("  No closed trades yet.")
+            print(f"  {PAIR_NAMES[t['Pair']]}: {t['Signal']} Entry:{t['Entry']:.5f} Close:{t['Close_Price']:.5f} P/L:{color}{pnl:.2f}{reset}")
 
     print("========================================")
 
@@ -206,25 +221,47 @@ def display_dashboard():
 # Main Bot Loop
 # ===========================
 def run_bot():
+    global TEST_MODE
+    test_trades_opened = {pair: False for pair in PAIRS}  # single test trade per pair
+
     while True:
         for pair in PAIRS:
-            df = fetch_data(pair)
-            if df is None:
-                continue
-            signal = generate_signal(df)
             live_price = get_live_price(pair)
             if live_price is None:
                 continue
 
-            # Open trade immediately on live price if signal and no active trade
-            if signal is not None and pair not in active_trades:
-                open_trade(pair, signal, live_price)
+            # TEST MODE
+            if TEST_MODE and not test_trades_opened[pair]:
+                open_trade(pair, 'BUY', live_price)
+                test_trades_opened[pair] = True
 
+            # NORMAL SIGNAL MODE
+            elif not TEST_MODE:
+                df = fetch_data(pair)
+                if df is None:
+                    continue
+                signal = generate_signal(df)
+                if signal is not None and pair not in active_trades:
+                    open_trade(pair, signal, live_price, df)
+
+            # CHECK TRADES
             check_trades(pair, live_price)
 
+        # DASHBOARD
         display_dashboard()
+
+        # AUTO DISABLE TEST MODE
+        if TEST_MODE:
+            all_test_closed = all(pair not in active_trades for pair in PAIRS)
+            if all_test_closed:
+                TEST_MODE = False
+                print("\033[95m[INFO] Test mode complete. Resuming normal live trading.\033[0m")
+
         time.sleep(SLEEP_INTERVAL)
 
+# ===========================
+# Run
+# ===========================
 if __name__ == "__main__":
-    print(f"[INFO] Precision Bot (live + recent trades + CSV logging) starting. Pairs: {PAIRS}")
+    print(f"\033[94m[INFO] Precision Bot starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE}\033[0m")
     run_bot()
