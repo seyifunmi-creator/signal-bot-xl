@@ -23,7 +23,7 @@ config = {
         "GBPUSD=X": "7d",
         "USDJPY=X": "7d",
         "USDCAD=X": "7d",
-        "GC=F": "30d"
+        "GC=F": "30d"  # we will fall back to 5m if 1m fails
     },
     "YF_INTERVALS": {
         "EURUSD=X": "1m",
@@ -40,8 +40,8 @@ config = {
         "GC=F": "5m"
     },
     "TRADE_SETTINGS": {
-        "TP_MULT": [1.0, 2.0, 3.0],  # ATR multiples for TP1/2/3
-        "SL_MULT": 1.0               # ATR multiple for SL
+        "TP_MULT": [1.0, 2.0, 3.0],
+        "SL_MULT": 1.0
     },
     "PAPER_TRADING": True,
     "VERBOSE": True,
@@ -74,11 +74,17 @@ closed_pips = {pair:0 for pair in PAIRS}
 
 # --- Bot Functions ---
 def fetch_data(pair, interval=None):
-    period = config["YF_PERIODS"].get(pair, "7d")
     interval = interval or config["YF_INTERVALS"].get(pair, "1m")
+    period = config["YF_PERIODS"].get(pair, "7d")
     try:
         df = yf.download(pair, period=period, interval=interval)
         if df.empty:
+            # fallback to higher interval if available
+            fallback_interval = config["HIGHER_INTERVALS"].get(pair)
+            if fallback_interval and fallback_interval != interval:
+                if config["VERBOSE"]:
+                    print(f"[WARN] {pair} 1m data unavailable, falling back to {fallback_interval}")
+                return fetch_data(pair, interval=fallback_interval)
             if config["VERBOSE"]:
                 print(f"[WARN] {pair} returned empty DataFrame")
             return None
@@ -90,6 +96,8 @@ def fetch_data(pair, interval=None):
         return None
 
 def compute_ATR(df, period=14):
+    if df is None or len(df) < period:
+        return 50  # default ATR if data insufficient
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -98,12 +106,12 @@ def compute_ATR(df, period=14):
     tr3 = abs(low - close.shift())
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     atr = tr.rolling(period).mean()
-    return atr.iloc[-1]
+    return atr.iloc[-1] if len(atr) > 0 else 50
 
 def precision_signal(df, df_higher=None):
-    close = df['Close']
-    if len(close) < 26:
+    if df is None or len(df) < 26:
         return None, None
+    close = df['Close']
     ema5 = close.ewm(span=5, adjust=False).mean()
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()
@@ -220,8 +228,8 @@ def run_bot():
     closed_stats = {"wins": 0, "losses": 0, "total": 0}
     while True:
         for pair in PAIRS:
-            atr = compute_ATR(fetch_data(pair)) or 50
             df_higher = fetch_data(pair, interval=config["HIGHER_INTERVALS"].get(pair))
+            atr = compute_ATR(fetch_data(pair))  # now safe
             if pair not in active_trades:
                 df = fetch_data(pair)
                 if df is None or len(df) < 26:
@@ -263,5 +271,5 @@ def run_bot():
 if __name__=="__main__":
     if config["UPDATE_PROTECT"]:
         print("[INFO] Auto-update blocked by protection (will still run).")
-    print(f"[INFO] Precision Bot (enhanced, precise + TP sequence dashboard) starting. Pairs: {PAIRS}")
+    print(f"[INFO] Precision Bot (enhanced, robust + TP dashboard) starting. Pairs: {PAIRS}")
     run_bot()
