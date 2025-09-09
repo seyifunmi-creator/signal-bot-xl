@@ -1,44 +1,52 @@
-import sys
-import os
-import json
 import pandas as pd
 import yfinance as yf
 import time
+import os
 import warnings
 from datetime import datetime
 
-# Suppress FutureWarnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# --- Determine base folder depending on how the script is run ---
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)  # Folder of the .exe
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(_file_))  # Folder of the .py script
-
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-
-# --- Load config ---
-with open(CONFIG_PATH) as f:
-    config = json.load(f)
+# --- Embedded configuration ---
+config = {
+    "UPDATE_PROTECT": True,
+    "PAIRS": ["CAD=X", "JPY=X", "GBPUSD=X", "EURUSD=X", "GC=F"],
+    "YF_PERIOD": "3d",
+    "YF_INTERVAL": "1m",
+    "TRADE_SETTINGS": {
+        "TP1_PIPS": 40,
+        "TP2_PIPS": 40,
+        "TP3_PIPS": 40,
+        "STOP_LOSS_PIPS": 50
+    },
+    "PAPER_TRADING": True,
+    "VERBOSE": True,
+    "MONITOR_SLEEP": 10
+}
 
 PAIRS = config["PAIRS"]
-PAPER = config["PAPER_TRADING"]
 TP1 = config["TRADE_SETTINGS"]["TP1_PIPS"]
 TP2 = config["TRADE_SETTINGS"]["TP2_PIPS"]
 TP3 = config["TRADE_SETTINGS"]["TP3_PIPS"]
 SL = config["TRADE_SETTINGS"]["STOP_LOSS_PIPS"]
 SLEEP = config["MONITOR_SLEEP"]
-VERBOSE = config.get("VERBOSE", True)
 
-LOG_FILE = os.path.join(BASE_DIR, "trade_log.csv")
-
-# Create trade log if not exists
+LOG_FILE = "trade_log.csv"
 if not os.path.exists(LOG_FILE):
     df_log = pd.DataFrame(columns=[
         "Timestamp", "Pair", "Signal", "Entry", "TP1_hit", "TP2_hit", "TP3_hit", "SL_hit"
     ])
     df_log.to_csv(LOG_FILE, index=False)
+
+# --- ANSI color codes ---
+class bcolors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+
+# --- Additional state for cumulative P/L ---
+closed_pips = {pair:0 for pair in PAIRS}
 
 # --- Bot Functions ---
 def fetch_data(pair):
@@ -48,23 +56,16 @@ def fetch_data(pair):
             return None
         return df
     except Exception as e:
-        if VERBOSE:
-            print(f"[ERROR] Failed to download {pair}: {e}")
+        print(f"[ERROR] Failed to download {pair}: {e}")
         return None
 
 def precision_signal(df):
-    """
-    Fully integrated original precision bot logic:
-    EMA9/EMA21 crossover, EMA50 trend filter, RSI filter
-    """
     close = df['Close']
     if len(close) < 50:
         return None, None
-
     ema9 = close.ewm(span=9, adjust=False).mean()
     ema21 = close.ewm(span=21, adjust=False).mean()
     ema50 = close.ewm(span=50, adjust=False).mean()
-
     delta = close.diff().dropna()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
@@ -72,11 +73,10 @@ def precision_signal(df):
     rsi = 100 - (100 / (1 + rs))
 
     last_close = close.iloc[-1].item()
-    prev_close = close.iloc[-2].item()
-    last_ema9 = ema9.iloc[-1].item()
     prev_ema9 = ema9.iloc[-2].item()
-    last_ema21 = ema21.iloc[-1].item()
+    last_ema9 = ema9.iloc[-1].item()
     prev_ema21 = ema21.iloc[-2].item()
+    last_ema21 = ema21.iloc[-1].item()
     last_ema50 = ema50.iloc[-1].item()
     last_rsi = rsi.iloc[-1].item()
 
@@ -95,7 +95,7 @@ def check_trade(pair, signal, entry):
         return None
     last = df['Close'].iloc[-1].item()
     hits = {"TP1_hit": False, "TP2_hit": False, "TP3_hit": False, "SL_hit": False}
-    factor = 0.0001 if "USD" in pair else 1
+    factor = 10000 if "USD" in pair else 1
 
     if signal == "BUY":
         if last >= entry + TP1*factor: hits["TP1_hit"] = True
@@ -121,11 +121,51 @@ def log_trade(pair, signal, entry, hits):
         **hits
     }])], ignore_index=True)
     df.to_csv(LOG_FILE, index=False)
-    if VERBOSE:
-        print(f"[LOG] {pair} | {signal} | Entry: {entry} | Hits: {hits}")
+
+def calculate_pips(signal, entry, last, pair):
+    factor = 10000 if "USD" in pair else 1
+    if signal == "BUY":
+        return (last - entry) * factor
+    elif signal == "SELL":
+        return (entry - last) * factor
+    return 0
+
+def dashboard(active_trades, closed_stats, closed_pips):
+    os.system('cls' if os.name=='nt' else 'clear')
+    print("====== Precision Bot Live Dashboard ======")
+    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    
+    print("Active Trades:")
+    if not active_trades:
+        print("  None")
+    for pair, (signal, entry, hits) in active_trades.items():
+        tp1 = bcolors.GREEN+"✔"+bcolors.RESET if hits["TP1_hit"] else bcolors.YELLOW+"…"+bcolors.RESET
+        tp2 = bcolors.GREEN+"✔"+bcolors.RESET if hits["TP2_hit"] else bcolors.YELLOW+"…"+bcolors.RESET
+        tp3 = bcolors.GREEN+"✔"+bcolors.RESET if hits["TP3_hit"] else bcolors.YELLOW+"…"+bcolors.RESET
+        sl  = bcolors.RED+"✖"+bcolors.RESET if hits["SL_hit"] else bcolors.YELLOW+"…"+bcolors.RESET
+        df = fetch_data(pair)
+        last_price = df['Close'].iloc[-1].item() if df is not None else entry
+        live_pips = calculate_pips(signal, entry, last_price, pair)
+        color = bcolors.GREEN if live_pips >=0 else bcolors.RED
+        print(f"  {pair}: {signal} @ {entry:.5f} | TP1:{tp1} TP2:{tp2} TP3:{tp3} SL:{sl} | Live P/L: {color}{live_pips:.1f} pips{bcolors.RESET}")
+
+    print("\nClosed Trades Stats:")
+    total = closed_stats['total']
+    wins = closed_stats['wins']
+    losses = closed_stats['losses']
+    win_rate = (wins / total * 100) if total>0 else 0
+    print(f"  Wins: {bcolors.GREEN}{wins}{bcolors.RESET} | Losses: {bcolors.RED}{losses}{bcolors.RESET} | Total: {total} | Win Rate: {bcolors.GREEN if win_rate>=50 else bcolors.RED}{win_rate:.2f}%{bcolors.RESET}")
+    
+    print("\nCumulative P/L per Pair (Closed Trades):")
+    for pair, pips in closed_pips.items():
+        color = bcolors.GREEN if pips >=0 else bcolors.RED
+        print(f"  {pair}: {color}{pips:.1f} pips{bcolors.RESET}")
+    
+    print("========================================")
 
 def run_bot():
     active_trades = {}
+    closed_stats = {"wins": 0, "losses": 0, "total": 0}
     while True:
         for pair in PAIRS:
             if pair not in active_trades:
@@ -134,24 +174,30 @@ def run_bot():
                     continue
                 signal, entry = precision_signal(df)
                 if signal:
-                    active_trades[pair] = (signal, entry)
-                    if VERBOSE:
-                        print(f"[SIGNAL] {pair} | {signal} | Entry: {entry}")
+                    active_trades[pair] = (signal, entry, {"TP1_hit":False,"TP2_hit":False,"TP3_hit":False,"SL_hit":False})
             else:
-                signal, entry = active_trades[pair]
-                hits = check_trade(pair, signal, entry)
-                if hits is None:
+                signal, entry, hits = active_trades[pair]
+                new_hits = check_trade(pair, signal, entry)
+                if new_hits is None:
                     continue
+                hits.update(new_hits)
                 log_trade(pair, signal, entry, hits)
                 if hits["TP3_hit"] or hits["SL_hit"]:
-                    if VERBOSE:
-                        print(f"[CLOSE] {pair} | {signal} closed.")
-                    del active_trades[pair]
+                    df = fetch_data(pair)
+                    last_price = df['Close'].iloc[-1].item() if df is not None else entry
+                    trade_pips = calculate_pips(signal, entry, last_price, pair)
+                    closed_pips[pair] += trade_pips
+                    active_trades.pop(pair)
+                    closed_stats["total"] +=1
+                    if hits["TP3_hit"]:
+                        closed_stats["wins"] +=1
+                    if hits["SL_hit"]:
+                        closed_stats["losses"] +=1
+        dashboard(active_trades, closed_stats, closed_pips)
         time.sleep(SLEEP)
 
-# --- Start Bot ---
 if __name__ == "__main__":
-    print(f"[INFO] Precision Bot (enhanced + accurate) starting. Pairs: {PAIRS}")
+    print(f"[INFO] Precision Bot (full integrated) starting. Pairs: {PAIRS}")
     if config.get("UPDATE_PROTECT", True):
         print("[INFO] Auto-update blocked by protection (will still run).")
     run_bot()
