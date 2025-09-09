@@ -52,10 +52,16 @@ def generate_signal(df):
         return None
     last = df.iloc[-1]
     prev = df.iloc[-2]
-    # Simple EMA + RSI logic
-    if prev['EMA5'] < prev['EMA12'] and last['EMA5'] > last['EMA12'] and last['RSI'] < 70:
+    # Ensure scalars to avoid pandas Series ambiguity
+    ema5_last = float(last['EMA5'])
+    ema12_last = float(last['EMA12'])
+    ema5_prev = float(prev['EMA5'])
+    ema12_prev = float(prev['EMA12'])
+    rsi_last = float(last['RSI'])
+    # Signal logic
+    if ema5_prev < ema12_prev and ema5_last > ema12_last and rsi_last < 70:
         return 'BUY'
-    elif prev['EMA5'] > prev['EMA12'] and last['EMA5'] < last['EMA12'] and last['RSI'] > 30:
+    elif ema5_prev > ema12_prev and ema5_last < ema12_last and rsi_last > 30:
         return 'SELL'
     else:
         return None
@@ -172,18 +178,17 @@ def run_bot():
     while True:
         for pair in PAIRS.keys():
             df = fetch_data(pair)
-            if df is None:
+            if df is None or df.empty:
                 continue
             df = compute_indicators(df)
             df = compute_ATR(df)
+            signal = generate_signal(df)
+            if signal and pair not in active_trades:
+                open_trade(pair, signal, float(df['Close'].iloc[-1]))
             check_trades(df, pair)
-            if pair not in active_trades:
-                signal = generate_signal(df)
-                if signal:
-                    last_price = float(df['Close'].iloc[-1])
-                    open_trade(pair, signal, last_price)
         display_dashboard()
         time.sleep(MONITOR_SLEEP)
 
+# ================== RUN ==================
 if __name__ == "__main__":
     run_bot()
