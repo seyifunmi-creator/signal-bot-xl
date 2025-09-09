@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import time
 from datetime import datetime
+import os
 
 # ===========================
 # Embedded Configuration
@@ -19,6 +20,7 @@ TP2 = 40
 TP3 = 40
 SL = 50
 SLEEP_INTERVAL = 60  # seconds between updates
+CSV_FILE = "trades_log.csv"
 
 # ===========================
 # Bot State
@@ -100,6 +102,28 @@ def compute_live_pnl(trade, current_price):
     pip_factor = 10000 if 'JPY' not in trade['Pair'] else 100
     return (current_price - trade['Entry']) * pip_factor if trade['Signal']=='BUY' else (trade['Entry'] - current_price) * pip_factor
 
+def log_trade_to_csv(trade):
+    """Append a closed trade to CSV with safe header creation."""
+    df = pd.DataFrame([{
+        'Pair': PAIR_NAMES[trade['Pair']],
+        'Signal': trade['Signal'],
+        'Entry': trade['Entry'],
+        'Close': trade['Close_Price'],
+        'TP1': trade['TP1'],
+        'TP2': trade['TP2'],
+        'TP3': trade['TP3'],
+        'SL': trade['SL'],
+        'Entry_Time': trade['Entry_Time'],
+        'Close_Time': trade['Close_Time'],
+        'P/L': compute_live_pnl(trade, trade['Close_Price'])
+    }])
+    
+    # If file exists, append without header; else write header
+    if not os.path.isfile(CSV_FILE):
+        df.to_csv(CSV_FILE, mode='w', header=True, index=False)
+    else:
+        df.to_csv(CSV_FILE, mode='a', header=False, index=False)
+
 def check_trades(pair, current_price):
     if pair not in active_trades:
         return
@@ -120,6 +144,7 @@ def check_trades(pair, current_price):
         trade['Close_Price'] = current_price
         trade['Close_Time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         closed_trades.append(trade)
+        log_trade_to_csv(trade)
         del active_trades[pair]
         # Color coded win/loss
         if ((trade['Signal']=='BUY' and trade['Close_Price'] > trade['Entry']) or (trade['Signal']=='SELL' and trade['Close_Price'] < trade['Entry'])):
@@ -163,7 +188,6 @@ def display_dashboard():
         cum_pnl = sum((t['Close_Price']-t['Entry'])*pip_factor if t['Signal']=='BUY' else (t['Entry']-t['Close_Price'])*pip_factor for t in pair_trades)
         print(f"  {PAIR_NAMES[pair]}: {cum_pnl:.2f} pips")
 
-    # Recent 5 closed trades
     print("\nRecent Closed Trades (last 5):")
     recent = closed_trades[-5:] if len(closed_trades) >= 5 else closed_trades
     if recent:
@@ -202,5 +226,5 @@ def run_bot():
         time.sleep(SLEEP_INTERVAL)
 
 if __name__ == "__main__":
-    print(f"[INFO] Precision Bot (live + recent trades) starting. Pairs: {PAIRS}")
+    print(f"[INFO] Precision Bot (live + recent trades + CSV logging) starting. Pairs: {PAIRS}")
     run_bot()
