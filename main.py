@@ -10,8 +10,15 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 # --- Embedded configuration ---
 config = {
     "UPDATE_PROTECT": True,
-    "PAIRS": ["CAD=X", "JPY=X", "GBPUSD=X", "EURUSD=X", "GC=F"],
-    "YF_PERIOD": "3d",
+    "PAIRS": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "XAUUSD=X", "USDCAD=X"],
+    "PAIR_NAMES": {
+        "EURUSD=X": "EUR/USD",
+        "GBPUSD=X": "GBP/USD",
+        "USDJPY=X": "USD/JPY",
+        "XAUUSD=X": "Gold/USD",
+        "USDCAD=X": "USD/CAD"
+    },
+    "YF_PERIOD": "7d",
     "YF_INTERVAL": "1m",
     "TRADE_SETTINGS": {
         "TP1_PIPS": 40,
@@ -25,6 +32,8 @@ config = {
 }
 
 PAIRS = config["PAIRS"]
+PAIR_NAMES = config["PAIR_NAMES"]
+
 TP1 = config["TRADE_SETTINGS"]["TP1_PIPS"]
 TP2 = config["TRADE_SETTINGS"]["TP2_PIPS"]
 TP3 = config["TRADE_SETTINGS"]["TP3_PIPS"]
@@ -45,7 +54,7 @@ class bcolors:
     YELLOW = '\033[93m'
     RESET = '\033[0m'
 
-# --- Additional state for cumulative P/L ---
+# --- State ---
 closed_pips = {pair:0 for pair in PAIRS}
 
 # --- Bot Functions ---
@@ -54,6 +63,8 @@ def fetch_data(pair):
         df = yf.download(pair, period=config["YF_PERIOD"], interval=config["YF_INTERVAL"])
         if df.empty:
             return None
+        if config["VERBOSE"]:
+            print(f"[DEBUG] {pair} ({PAIR_NAMES.get(pair,pair)}): {len(df)} rows fetched")
         return df
     except Exception as e:
         print(f"[ERROR] Failed to download {pair}: {e}")
@@ -147,7 +158,8 @@ def dashboard(active_trades, closed_stats, closed_pips):
         last_price = df['Close'].iloc[-1].item() if df is not None else entry
         live_pips = calculate_pips(signal, entry, last_price, pair)
         color = bcolors.GREEN if live_pips >=0 else bcolors.RED
-        print(f"  {pair}: {signal} @ {entry:.5f} | TP1:{tp1} TP2:{tp2} TP3:{tp3} SL:{sl} | Live P/L: {color}{live_pips:.1f} pips{bcolors.RESET}")
+        name = PAIR_NAMES.get(pair, pair)
+        print(f"  {name}: {signal} @ {entry:.5f} | TP1:{tp1} TP2:{tp2} TP3:{tp3} SL:{sl} | Live P/L: {color}{live_pips:.1f} pips{bcolors.RESET}")
 
     print("\nClosed Trades Stats:")
     total = closed_stats['total']
@@ -159,7 +171,8 @@ def dashboard(active_trades, closed_stats, closed_pips):
     print("\nCumulative P/L per Pair (Closed Trades):")
     for pair, pips in closed_pips.items():
         color = bcolors.GREEN if pips >=0 else bcolors.RED
-        print(f"  {pair}: {color}{pips:.1f} pips{bcolors.RESET}")
+        name = PAIR_NAMES.get(pair, pair)
+        print(f"  {name}: {color}{pips:.1f} pips{bcolors.RESET}")
     
     print("========================================")
 
@@ -170,7 +183,7 @@ def run_bot():
         for pair in PAIRS:
             if pair not in active_trades:
                 df = fetch_data(pair)
-                if df is None:
+                if df is None or len(df) < 50:
                     continue
                 signal, entry = precision_signal(df)
                 if signal:
