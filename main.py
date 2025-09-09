@@ -1,27 +1,32 @@
-"""
-Precision Bot V3
-- Integrated lightweight trainer using 1 month of 5m historical data at startup
-- One-cycle test mode (no re-entries during test cycle)
-- Test trades are tagged and excluded from live accuracy
-- Heuristic suggests at TP1 and TP2 using statistics from historical backtest
-- TP1/TP2/TP3 check marks, quiet error handling, logging
+# precision_bot_v3_full.py
+# Full Precision Bot V3 - copy/paste into main.py
+# Features: integrated training (1 month, 5m), one-cycle test, TP check marks,
+# suggestions at TP1 & TP2 using trained stats, separate test/live accuracy,
+# quiet error logging, and a y/n startup prompt.
 
-Run: python precision_bot_v3.py
-Requires: yfinance, pandas
-"""
-
-import yfinance as yf
-import pandas as pd
-import time
-from datetime import datetime, timedelta
-import os
-import math
 import warnings
-
 warnings.filterwarnings('ignore')
 
+import time
+import math
+import os
+import sys
+import traceback
+from datetime import datetime
+
+# delayed import of heavy libs inside try to log errors cleanly
+try:
+    import yfinance as yf
+    import pandas as pd
+except Exception as e:
+    print("!!! IMPORT ERROR !!!")
+    print("Make sure yfinance and pandas are installed in this Python environment.")
+    print(f"{type(e)._name_}: {e}")
+    traceback.print_exc()
+    sys.exit(1)
+
 # ===========================
-# Configuration
+# CONFIGURATION
 # ===========================
 PAIRS = ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCAD=X', 'GC=F']
 PAIR_NAMES = {
@@ -31,56 +36,79 @@ PAIR_NAMES = {
     'USDCAD=X': 'USD/CAD',
     'GC=F': 'Gold/USD'
 }
+
+# default (will be overridden by startup prompt)
+TEST_MODE = False   # If True -> test mode (one-cycle if ONE_CYCLE_TEST True)
+ONE_CYCLE_TEST = True
+
+# TP/SL config (pips)
 TP1 = 40
 TP2 = 40
 TP3 = 40
 SL = 50
-SLEEP_INTERVAL = 60  # seconds
+
+# runtime/config
+SLEEP_INTERVAL = 60  # seconds between loop cycles
 CSV_FILE = "trades_log.csv"
 LOG_FILE = "precision_bot_v3.log"
-TEST_MODE = True  # True = test trades, False = live EMA/RSI
-ONE_CYCLE_TEST = True  # open only one trade per pair during test
-TRAIN_WINDOW = 30  # days
-TRAIN_INTERVAL = '5m'  # training candle interval
-RETRAIN_DAYS = 7  # days between retrains (not auto-scheduled unless restarted)
 
-# Live signal tuning
+# training config
+TRAIN_WINDOW_DAYS = 30   # 1 month
+TRAIN_INTERVAL = '5m'    # 5 minute candles
+RETRAIN_DAYS = 7         # not auto-scheduled; used if implementing retrain schedule
+
+# live signal tuning
 MIN_RSI = 30
 MAX_RSI = 70
 REQUIRED_SUSTAINED_CANDLES = 2
 
 # ===========================
-# State
+# STATE
 # ===========================
 active_trades = {}
 closed_trades = []
 initial_test_opened = set()
-trained_stats = {}  # per-pair heuristic results
+trained_stats = {}
 last_trained = None
 
 # ===========================
-# Helpers
+# UTILITIES / LOGGING
 # ===========================
-
 def log(msg):
+    """Append a timestamped message to LOG_FILE (quiet on console)."""
     ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = f"[{ts}] {msg}"
     try:
-        with open(LOG_FILE, 'a') as f:
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(line + '\n')
     except Exception:
-        pass
+        # last-resort print if logging fails
+        try:
+            print("LOG WRITE FAILED:", line)
+        except:
+            pass
 
+# pretty startup banner (console)
+def startup_banner():
+    print(">>> Precision Bot V3 — Startup Initiated <<<")
+    print(f"Pairs: {PAIRS}")
+    print(f"Log file: {LOG_FILE}")
+    print("Waiting for startup selection...")
 
+# ===========================
+# MARKET & INDICATOR HELPERS
+# ===========================
 def detect_pip_unit(pair):
+    """Return (pip_unit, pip_factor) for calculations."""
     if pair.endswith('JPY'):
         return 0.01, 100
     if pair == 'GC=F':
-        return 0.1, 10  # preserved per your earlier correction
+        # keep user-chosen earlier behavior (you told me you fixed gold pip unit)
+        return 0.1, 10
     return 0.0001, 10000
 
-
 def fetch_data(pair, interval='5m', period_days=30):
+    """Fetch historical data (auto_adjust=True)."""
     try:
         period_str = f"{period_days}d"
         df = yf.download(pair, period=period_str, interval=interval, progress=False, auto_adjust=True)
@@ -91,7 +119,7 @@ def fetch_data(pair, interval='5m', period_days=30):
             df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
             df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
         delta = df['Close'].diff()
-        up, down = delta.clip(lower=0), -1 * delta.clip(upper=0)
+        up, down = delta.clip(lower=0), -1*delta.clip(upper=0)
         roll_up = up.rolling(14).mean()
         roll_down = down.rolling(14).mean()
         df['RSI'] = 100 - (100 / (1 + roll_up / (roll_down + 1e-8)))
@@ -100,8 +128,8 @@ def fetch_data(pair, interval='5m', period_days=30):
         log(f"fetch_data failed for {pair}: {e}")
         return None
 
-
 def get_live_price(pair):
+    """Try fast_info last_price, fallback to 1m history close"""
     try:
         ticker = yf.Ticker(pair)
         info = getattr(ticker, 'fast_info', None)
@@ -114,7 +142,6 @@ def get_live_price(pair):
     except Exception as e:
         log(f"get_live_price failed for {pair}: {e}")
         return None
-
 
 def calculate_atr(df, period=14):
     try:
@@ -129,8 +156,11 @@ def calculate_atr(df, period=14):
         log(f"ATR calc failed: {e}")
         return None
 
-
+# ===========================
+# SIGNAL GENERATION
+# ===========================
 def generate_signal(df):
+    """Sustained EMA crossover + RSI filter for higher confidence signals."""
     try:
         if df is None or len(df) < (REQUIRED_SUSTAINED_CANDLES + 5):
             return None
@@ -147,13 +177,10 @@ def generate_signal(df):
         return None
 
 # ===========================
-# Training / Backtest (integrated)
+# BACKTEST / TRAINING (INTEGRATED)
 # ===========================
-
 def backtest_pair(pair, df):
-    """Simulate signals on historical candles and record reach probabilities.
-    We'll simulate entry when generate_signal turns True and then track whether TP1/TP2/TP3 are reached.
-    """
+    """Simulate historical signals and record whether TP1/TP2/TP3 were reached."""
     try:
         pip_unit, pip_factor = detect_pip_unit(pair)
         results = {
@@ -162,23 +189,20 @@ def backtest_pair(pair, df):
             'tp2_reached': 0,
             'tp3_reached': 0,
             'tp3_given_tp1': 0,
-            'tp3_given_tp2': 0,
-            'tp1_then_tp3': 0,
-            'tp2_then_tp3': 0
+            'tp3_given_tp2': 0
         }
-        # We'll scan through df, generate signals at each candle and simulate following movement until either TP3 or SL
+        # iterate through candles and simulate entries
         for idx in range(REQUIRED_SUSTAINED_CANDLES, len(df)-1):
             window = df.iloc[:idx+1]
             signal = generate_signal(window)
             if signal is None:
                 continue
             entry_price = df['Close'].iloc[idx]
-            # compute target prices using ATR if possible
             atr = calculate_atr(window)
             if atr is not None and atr > 0:
                 tp1_val = max(atr, TP1 * pip_unit)
-                tp2_val = max(atr*2, (TP1+TP2)*pip_unit)
-                tp3_val = max(atr*3, (TP1+TP2+TP3)*pip_unit)
+                tp2_val = max(atr*2, (TP1+TP2) * pip_unit)
+                tp3_val = max(atr*3, (TP1+TP2+TP3) * pip_unit)
                 sl_val = max(atr*1.25, SL * pip_unit)
             else:
                 tp1_val = TP1 * pip_unit
@@ -190,9 +214,9 @@ def backtest_pair(pair, df):
             tp3_price = entry_price + tp3_val if signal == 'BUY' else entry_price - tp3_val
             sl_price = entry_price - sl_val if signal == 'BUY' else entry_price + sl_val
 
-            # now scan forward until stop
             reached_tp1 = reached_tp2 = reached_tp3 = False
-            for j in range(idx+1, min(idx+1+500, len(df))):  # limit lookahead ~500 candles
+            # look ahead up to 500 candles (arbitrary cap to limit runtime)
+            for j in range(idx+1, min(idx+1+500, len(df))):
                 high = df['High'].iloc[j]
                 low = df['Low'].iloc[j]
                 if signal == 'BUY':
@@ -213,7 +237,6 @@ def backtest_pair(pair, df):
                         reached_tp3 = True
                     if high >= sl_price:
                         break
-                # early exit if tp3 reached
                 if reached_tp3:
                     break
 
@@ -224,91 +247,89 @@ def backtest_pair(pair, df):
                 results['tp2_reached'] += 1
             if reached_tp3:
                 results['tp3_reached'] += 1
-            # conditional counters
-            if reached_tp1:
-                if reached_tp3:
-                    results['tp3_given_tp1'] += 1
-            if reached_tp2:
-                if reached_tp3:
-                    results['tp3_given_tp2'] += 1
-        # compute probabilities
-        stats = {}
+            if reached_tp1 and reached_tp3:
+                results['tp3_given_tp1'] += 1
+            if reached_tp2 and reached_tp3:
+                results['tp3_given_tp2'] += 1
+
         trades = max(1, results['trades'])
-        stats['trades'] = results['trades']
-        stats['p_tp1'] = results['tp1_reached'] / trades
-        stats['p_tp2'] = results['tp2_reached'] / trades
-        stats['p_tp3'] = results['tp3_reached'] / trades
-        stats['p_tp3_given_tp1'] = (results['tp3_given_tp1'] / results['tp1_reached']) if results['tp1_reached']>0 else 0.0
-        stats['p_tp3_given_tp2'] = (results['tp3_given_tp2'] / results['tp2_reached']) if results['tp2_reached']>0 else 0.0
+        stats = {
+            'trades': results['trades'],
+            'p_tp1': results['tp1_reached'] / trades,
+            'p_tp2': results['tp2_reached'] / trades,
+            'p_tp3': results['tp3_reached'] / trades,
+            'p_tp3_given_tp1': (results['tp3_given_tp1'] / results['tp1_reached']) if results['tp1_reached']>0 else 0.0,
+            'p_tp3_given_tp2': (results['tp3_given_tp2'] / results['tp2_reached']) if results['tp2_reached']>0 else 0.0
+        }
         return stats
     except Exception as e:
         log(f"backtest_pair error for {pair}: {e}")
         return None
 
-
 def train_heuristic():
+    """Train (compute empirical stats) for each pair using recent historical data."""
     global trained_stats, last_trained
     try:
         log("Starting heuristic training...")
         trained_stats = {}
         for pair in PAIRS:
-            df = fetch_data(pair, interval=TRAIN_INTERVAL, period_days=TRAIN_WINDOW)
+            df = fetch_data(pair, interval=TRAIN_INTERVAL, period_days=TRAIN_WINDOW_DAYS)
             if df is None:
-                log(f"No historical data for {pair}, skipping training")
+                log(f"No historical data for {pair} (skipping training).")
                 continue
             stats = backtest_pair(pair, df)
             if stats:
                 trained_stats[pair] = stats
-                log(f"Trained {pair}: {stats}")
+                log(f"Trained {pair}: trades={stats['trades']} p_tp3={stats['p_tp3']:.2f} p_tp3|tp1={stats['p_tp3_given_tp1']:.2f}")
         last_trained = datetime.now()
-        log("Training complete")
+        log("Training complete.")
     except Exception as e:
         log(f"train_heuristic error: {e}")
 
 # ===========================
-# Trading functions
+# TRADING: open/check/log
 # ===========================
-
 def open_trade(pair, signal, current_price, df=None, mode='live'):
-    pip_unit, pip_factor = detect_pip_unit(pair)
-    atr = calculate_atr(df) if df is not None else None
-    if atr is not None and atr > 0:
-        tp1_val = max(atr, TP1 * pip_unit)
-        tp2_val = max(atr*2, (TP1+TP2) * pip_unit)
-        tp3_val = max(atr*3, (TP1+TP2+TP3) * pip_unit)
-        sl_val = max(atr*1.25, SL * pip_unit)
-    else:
-        tp1_val = TP1 * pip_unit
-        tp2_val = (TP1+TP2) * pip_unit
-        tp3_val = (TP1+TP2+TP3) * pip_unit
-        sl_val = SL * pip_unit
+    try:
+        pip_unit, pip_factor = detect_pip_unit(pair)
+        atr = calculate_atr(df) if df is not None else None
+        if atr is not None and atr > 0:
+            tp1_val = max(atr, TP1 * pip_unit)
+            tp2_val = max(atr*2, (TP1+TP2) * pip_unit)
+            tp3_val = max(atr*3, (TP1+TP2+TP3) * pip_unit)
+            sl_val = max(atr*1.25, SL * pip_unit)
+        else:
+            tp1_val = TP1 * pip_unit
+            tp2_val = (TP1+TP2) * pip_unit
+            tp3_val = (TP1+TP2+TP3) * pip_unit
+            sl_val = SL * pip_unit
 
-    active_trades[pair] = {
-        'Pair': pair,
-        'Signal': signal,
-        'Entry': current_price,
-        'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
-        'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
-        'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
-        'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
-        'TP1_hit': False,
-        'TP2_hit': False,
-        'TP3_hit': False,
-        'SL_hit': False,
-        'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'pip_unit': pip_unit,
-        'pip_factor': pip_factor,
-        'mode': mode
-    }
-    print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f} ({mode})\033[0m")
-    log(f"Opened {pair} {signal} @ {current_price} mode={mode}")
-
+        active_trades[pair] = {
+            'Pair': pair,
+            'Signal': signal,
+            'Entry': current_price,
+            'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
+            'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
+            'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
+            'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
+            'TP1_hit': False,
+            'TP2_hit': False,
+            'TP3_hit': False,
+            'SL_hit': False,
+            'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'pip_unit': pip_unit,
+            'pip_factor': pip_factor,
+            'mode': mode
+        }
+        print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f} ({mode})\033[0m")
+        log(f"Opened {pair} {signal} @ {current_price} mode={mode}")
+    except Exception as e:
+        log(f"open_trade error for {pair}: {e}")
 
 def compute_live_pnl(trade, current_price):
     pf = trade.get('pip_factor', 10000)
     value = (current_price - trade['Entry']) * pf if trade['Signal']=='BUY' else (trade['Entry'] - current_price) * pf
     return value
-
 
 def log_trade_to_csv(trade):
     try:
@@ -333,22 +354,19 @@ def log_trade_to_csv(trade):
     except Exception as e:
         log(f"Failed to log trade to CSV: {e}")
 
-
+# Heuristic suggestion using trained stats
 def suggest_using_trained_stats(pair, trade, current_price):
-    # Use trained_stats to compute probabilities and provide suggestion
     try:
         stats = trained_stats.get(pair)
         if not stats:
             return ("No trained data — hold.", 50)
-        # compute remaining distance to TP3 in pips
         pip_unit, _ = detect_pip_unit(pair)
-        remaining = abs(trade['TP3'] - current_price) / pip_unit
-        # pull conditional probabilities
-        p_tp3_given_tp1 = stats.get('p_tp3_given_tp1', 0.0)
-        p_tp3_given_tp2 = stats.get('p_tp3_given_tp2', 0.0)
-        # if TP2 hit, use p_tp3_given_tp2; else if TP1 hit use p_tp3_given_tp1
-        base_prob = p_tp3_given_tp2 if trade['TP2_hit'] else (p_tp3_given_tp1 if trade['TP1_hit'] else stats.get('p_tp3',0.0))
-        # convert to percentage
+        # choose conditional probability if TP1/TP2 hit
+        base_prob = stats.get('p_tp3', 0.0)
+        if trade['TP2_hit']:
+            base_prob = stats.get('p_tp3_given_tp2', base_prob)
+        elif trade['TP1_hit']:
+            base_prob = stats.get('p_tp3_given_tp1', base_prob)
         pct = int(base_prob * 100)
         if pct >= 60:
             return (f"High chance to reach TP3 (~{pct}%). Hold for TP3.", pct)
@@ -359,19 +377,16 @@ def suggest_using_trained_stats(pair, trade, current_price):
         log(f"suggest_using_trained_stats error: {e}")
         return ("Error estimating — hold.", 50)
 
-
+# Checking active trades for TP/SL and suggestions
 def check_trades(pair, current_price, df=None):
     if pair not in active_trades:
         return
     trade = active_trades[pair]
-
-    # Check TPs/SL and print check marks when hit
     try:
         if not trade['TP1_hit'] and ((trade['Signal']=='BUY' and current_price >= trade['TP1']) or (trade['Signal']=='SELL' and current_price <= trade['TP1'])):
             trade['TP1_hit'] = True
             print(f"\033[93m[TP1 HIT] {PAIR_NAMES[pair]} reached TP1 @ {current_price:.5f} ✅\033[0m")
             log(f"{pair} TP1 hit @ {current_price}")
-            # suggestion at TP1 (live only)
             if trade.get('mode')=='live':
                 sugg, score = suggest_using_trained_stats(pair, trade, current_price)
                 print(f"  Suggestion: {sugg} (Confidence {score}%)")
@@ -394,7 +409,7 @@ def check_trades(pair, current_price, df=None):
             print(f"\033[91m[SL HIT] {PAIR_NAMES[pair]} hit SL @ {current_price:.5f}\033[0m")
             log(f"{pair} SL hit @ {current_price}")
 
-        # Close conditions
+        # Close condition: TP3 or SL (keeps previous behavior of holding through TP1/TP2)
         if (trade['TP3_hit']) or trade['SL_hit']:
             trade['Close_Price'] = current_price
             trade['Close_Time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -411,9 +426,8 @@ def check_trades(pair, current_price, df=None):
         log(f"check_trades error for {pair}: {e}")
 
 # ===========================
-# Dashboard
+# DASHBOARD
 # ===========================
-
 def display_dashboard():
     try:
         print("\n====== Precision Bot V3 Dashboard ======")
@@ -439,7 +453,7 @@ def display_dashboard():
             for pair in PAIRS:
                 print(f"  {PAIR_NAMES[pair]}: WAIT")
 
-        # Closed trades summary (exclude test trades from live accuracy)
+        # Closed trades summary (LIVE only)
         live_closed = [t for t in closed_trades if t.get('mode','live')=='live']
         wins = sum(1 for t in live_closed if (t['Signal']=='BUY' and t['Close_Price']>t['Entry']) or (t['Signal']=='SELL' and t['Close_Price']<t['Entry']))
         losses = len(live_closed) - wins
@@ -459,15 +473,14 @@ def display_dashboard():
         log(f"display_dashboard error: {e}")
 
 # ===========================
-# Main loop
+# MAIN BOT LOOP
 # ===========================
-
 def run_bot():
     global TEST_MODE, initial_test_opened
-    # train heuristic once at startup
+    # Train heuristic at startup (lightweight)
     train_heuristic()
 
-    # open initial test trades if running ONE_CYCLE_TEST
+    # Open initial test trades if ONE_CYCLE_TEST
     if TEST_MODE and ONE_CYCLE_TEST and not initial_test_opened:
         for pair in PAIRS:
             price = get_live_price(pair)
@@ -487,32 +500,51 @@ def run_bot():
                 if not ONE_CYCLE_TEST and pair not in active_trades:
                     open_trade(pair, 'BUY', price, df=None, mode='test')
             else:
-                # live mode: check for signal and open
+                # live mode: generate signals
                 df = fetch_data(pair, interval='1m', period_days=3)
                 signal = generate_signal(df)
                 if signal and pair not in active_trades:
                     open_trade(pair, signal, price, df=df, mode='live')
 
-
             df_for_check = fetch_data(pair, interval='5m', period_days=2) if not TEST_MODE else None
             check_trades(pair, price, df_for_check)
 
-
         display_dashboard()
 
-
-        # auto switch off test mode when no active trades (one-cycle guarantees termination)
+        # auto switch-off test mode when no active trades (one-cycle guarantees termination)
         if TEST_MODE and not active_trades:
-           TEST_MODE = False
-           print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
-           log("Test mode ended, switching to live mode")
-
+            TEST_MODE = False
+            print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
+            log("Test mode ended, switching to live mode")
 
         time.sleep(SLEEP_INTERVAL)
-        # ===========================
-        # Entry point
-        # ===========================
-        if __name__ == "__main__":
-            print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
-            run_bot()
 
+# ===========================
+# ENTRY POINT (with y/n startup prompt and safety)
+# ===========================
+if __name__ == '__main__':
+    try:
+        startup_banner()
+        # prompt (strict y or n)
+        mode_input = ''
+        while mode_input not in ('y', 'n'):
+            mode_input = input("Start in test mode? (y/n): ").strip().lower()
+        if mode_input == 'y':
+            TEST_MODE = True
+            print("\033[93m[INFO] Starting in TEST MODE (one-cycle enabled).\033[0m")
+        else:
+            TEST_MODE = False
+            print("\033[92m[INFO] Starting in LIVE MODE.\033[0m")
+
+        print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
+        run_bot()
+    except KeyboardInterrupt:
+        print("\n[INFO] Shutdown requested (KeyboardInterrupt). Exiting.")
+        log("Shutdown by user (KeyboardInterrupt).")
+        sys.exit(0)
+    except Exception as e:
+        print("!!! FATAL ERROR DURING BOT STARTUP OR RUNTIME !!!")
+        print(f"{type(e)._name_}: {e}")
+        traceback.print_exc()
+        log(f"FATAL error: {type(e)._name_}: {e}")
+        sys.exit(1)
