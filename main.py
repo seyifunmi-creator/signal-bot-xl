@@ -359,7 +359,7 @@ def open_trade(pair, signal, current_price, df=None):
     }
 
     print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
-        log(f"Opened {pair} {signal} @ {current_price} mode={mode}")
+    log(f"Opened {pair} {signal} @ {current_price} mode={mode}")
     except Exception as e:
         log(f"open_trade error for {pair}: {e}")
 
