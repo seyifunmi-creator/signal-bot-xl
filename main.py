@@ -53,12 +53,13 @@ def generate_signal(df):
         return None
     last = df.iloc[-1]
     prev = df.iloc[-2]
-    # Ensure scalars to avoid pandas Series ambiguity
-    ema5_last = last['EMA5']
-    ema12_last = last['EMA12']
-    ema5_prev = prev['EMA5']
-    ema12_prev = prev['EMA12']
-    rsi_last = last['RSI']
+
+    # Force scalars
+    ema5_last = float(last['EMA5'])
+    ema12_last = float(last['EMA12'])
+    ema5_prev = float(prev['EMA5'])
+    ema12_prev = float(prev['EMA12'])
+    rsi_last = float(last['RSI'])
 
     if ema5_prev < ema12_prev and ema5_last > ema12_last and rsi_last < 70:
         return 'BUY'
