@@ -54,11 +54,12 @@ def generate_signal(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
-    ema5_last = float(last['EMA5'])
-    ema12_last = float(last['EMA12'])
-    ema5_prev = float(prev['EMA5'])
-    ema12_prev = float(prev['EMA12'])
-    rsi_last = float(last['RSI'])
+    # Use .item() to extract scalar
+    ema5_last = last['EMA5'].item()
+    ema12_last = last['EMA12'].item()
+    ema5_prev = prev['EMA5'].item()
+    ema12_prev = prev['EMA12'].item()
+    rsi_last = last['RSI'].item()
 
     if ema5_prev < ema12_prev and ema5_last > ema12_last and rsi_last < 70:
         return 'BUY'
@@ -71,7 +72,7 @@ def check_trades(pair, df):
     if pair not in active_trades or df is None or df.empty:
         return
     trade = active_trades[pair]
-    current_price = float(df['Close'].iloc[-1])
+    current_price = df['Close'].iloc[-1].item()
 
     # Adjust TP/SL for pip unit
     pip_unit = 0.0001
@@ -80,10 +81,10 @@ def check_trades(pair, df):
     elif pair == 'GC=F':
         pip_unit = 0.1
 
-    tp1 = float(trade['TP1'])
-    tp2 = float(trade['TP2'])
-    tp3 = float(trade['TP3'])
-    sl = float(trade['SL'])
+    tp1 = trade['TP1'].item() if isinstance(trade['TP1'], pd.Series) else trade['TP1']
+    tp2 = trade['TP2'].item() if isinstance(trade['TP2'], pd.Series) else trade['TP2']
+    tp3 = trade['TP3'].item() if isinstance(trade['TP3'], pd.Series) else trade['TP3']
+    sl = trade['SL'].item() if isinstance(trade['SL'], pd.Series) else trade['SL']
 
     if not trade['TP1_hit'] and current_price >= tp1:
         trade['TP1_hit'] = True
@@ -124,10 +125,7 @@ def open_trade(pair, signal, current_price):
 
 def compute_live_pnl(trade, current_price):
     pip_factor = 10000 if 'JPY' not in trade['Pair'] else 100
-    if trade['Signal'] == 'BUY':
-        return (current_price - trade['Entry']) * pip_factor
-    else:
-        return (trade['Entry'] - current_price) * pip_factor
+    return (current_price - trade['Entry']) * pip_factor if trade['Signal'] == 'BUY' else (trade['Entry'] - current_price) * pip_factor
 
 # ===========================
 # Dashboard
@@ -139,10 +137,7 @@ def display_dashboard():
     if active_trades:
         for trade in active_trades.values():
             df = fetch_data(trade['Pair'], interval='1m', period='1d')
-            if df is None or df.empty:
-                current_price = trade['Entry']
-            else:
-                current_price = float(df['Close'].iloc[-1])
+            current_price = df['Close'].iloc[-1].item() if df is not None and not df.empty else trade['Entry']
             live_pnl = compute_live_pnl(trade, current_price)
             print(f"  {PAIR_NAMES[trade['Pair']]}: {trade['Signal']} @ {trade['Entry']:.5f} | "
                   f"TP1: {trade['TP1']:.5f} | TP2: {trade['TP2']:.5f} | TP3: {trade['TP3']:.5f} | "
@@ -176,13 +171,14 @@ def run_bot():
                 continue
             signal = generate_signal(df)
 
-            # Optional trend check to reduce false entries
+            # Optional trend check
             if signal is not None and len(df) >= 3:
                 recent = df['Close'].iloc[-3:]
-                if signal == 'BUY' and all(recent.diff() > 0):
-                    open_trade(pair, signal, float(df['Close'].iloc[-1]))
-                elif signal == 'SELL' and all(recent.diff() < 0):
-                    open_trade(pair, signal, float(df['Close'].iloc[-1]))
+                diffs = recent.diff().dropna()
+                if signal == 'BUY' and all(diffs > 0):
+                    open_trade(pair, signal, recent.iloc[-1].item())
+                elif signal == 'SELL' and all(diffs < 0):
+                    open_trade(pair, signal, recent.iloc[-1].item())
 
             check_trades(pair, df)
         display_dashboard()
