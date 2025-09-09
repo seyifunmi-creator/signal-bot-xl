@@ -332,7 +332,7 @@ def open_trade(pair, signal, current_price, df=None):
 
         pip_unit = get_pip_unit(pair)
 
-        # ATR-based TP/SL (optional, uses EMA/RSI)
+        # ATR-based TP/SL
         atr = calculate_atr(df) if df is not None else None
         if atr is not None:
             tp1_val = atr
@@ -359,6 +359,9 @@ def open_trade(pair, signal, current_price, df=None):
             'SL_hit': False,
             'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+
+        # ✅ Safe log: pair is defined here
+        log(f"Opened {pair} {signal} @ {current_price} mode={'TEST' if TEST_MODE else 'LIVE'}")
 
         print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
 
@@ -536,46 +539,30 @@ def display_dashboard():
 # MAIN BOT LOOP
 # ===========================
 def run_bot():
-    global TEST_MODE, initial_test_opened
-    # Train heuristic at startup (lightweight)
-    train_heuristic()
-
-    # Open initial test trades if ONE_CYCLE_TEST
-    if TEST_MODE and ONE_CYCLE_TEST and not initial_test_opened:
-        for pair in PAIRS:
-            price = get_live_price(pair)
-            if price is None:
-                continue
-            open_trade(pair, 'BUY', price, df=None, mode='test')
-            initial_test_opened.add(pair)
-
+    global TEST_MODE
     while True:
         for pair in PAIRS:
             price = get_live_price(pair)
             if price is None:
                 continue
 
-            if TEST_MODE:
-                # in one-cycle test mode we don't re-enter; in normal test we'd reopen
-                if not ONE_CYCLE_TEST and pair not in active_trades:
-                    open_trade(pair, 'BUY', price, df=None, mode='test')
-            else:
-                # live mode: generate signals
-                df = fetch_data(pair, interval='1m', period_days=3)
+            # Test mode: open single trade per pair if not active
+            if TEST_MODE and pair not in active_trades:
+                open_trade(pair, 'BUY', price)  # log inside open_trade()
+            elif not TEST_MODE:
+                df = fetch_data(pair)
                 signal = generate_signal(df)
                 if signal and pair not in active_trades:
-                    open_trade(pair, signal, price, df=df, mode='live')
+                    open_trade(pair, signal, price, df)
 
-            df_for_check = fetch_data(pair, interval='5m', period_days=2) if not TEST_MODE else None
-            check_trades(pair, price, df_for_check)
+            check_trades(pair, price)
 
         display_dashboard()
 
-        # auto switch-off test mode when no active trades (one-cycle guarantees termination)
+        # Disable test mode automatically if all test trades closed
         if TEST_MODE and not active_trades:
             TEST_MODE = False
             print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
-            log("Test mode ended, switching to live mode")
 
         time.sleep(SLEEP_INTERVAL)
 
