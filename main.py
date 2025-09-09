@@ -9,8 +9,11 @@ from datetime import datetime
 # Suppress FutureWarnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# Load configuration
-with open("config.json") as f:
+# --- Ensure config.json is always found ---
+BASE_DIR = os.path.dirname(os.path.abspath(_file_))
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+with open(CONFIG_PATH) as f:
     config = json.load(f)
 
 PAIRS = config["PAIRS"]
@@ -22,16 +25,16 @@ SL = config["TRADE_SETTINGS"]["STOP_LOSS_PIPS"]
 SLEEP = config["MONITOR_SLEEP"]
 VERBOSE = config.get("VERBOSE", True)
 
-LOG_FILE = "trade_log.csv"
+LOG_FILE = os.path.join(BASE_DIR, "trade_log.csv")
 
-# Ensure log exists
+# Create log if not exists
 if not os.path.exists(LOG_FILE):
     df_log = pd.DataFrame(columns=[
         "Timestamp", "Pair", "Signal", "Entry", "TP1_hit", "TP2_hit", "TP3_hit", "SL_hit"
     ])
     df_log.to_csv(LOG_FILE, index=False)
 
-# --- Helper Functions ---
+# --- Bot Functions ---
 
 def fetch_data(pair):
     try:
@@ -46,15 +49,12 @@ def fetch_data(pair):
 
 def precision_signal(df):
     """
-    Original precision logic fully integrated, now enhanced for accuracy:
-    - EMA9/EMA21 crossover filter
-    - RSI filter to reduce false signals
-    - Confirm trend with EMA50
-    - Prevent signals if close too close to previous TP/SL
+    Original bot's logic fully integrated with enhancements:
+    EMA9/EMA21 crossover, EMA50 trend filter, RSI filter
     """
     close = df['Close']
     if len(close) < 50:
-        return None, None  # Not enough data
+        return None, None
 
     # EMA calculations
     ema9 = close.ewm(span=9, adjust=False).mean()
@@ -65,7 +65,7 @@ def precision_signal(df):
     delta = close.diff().dropna()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = -delta.clip(upper=0).rolling(14).mean()
-    rs = gain / loss.replace(0, 0.0001)  # avoid divide by zero
+    rs = gain / loss.replace(0, 0.0001)
     rsi = 100 - (100 / (1 + rs))
 
     # Last values
@@ -78,13 +78,8 @@ def precision_signal(df):
     last_ema50 = ema50.iloc[-1].item()
     last_rsi = rsi.iloc[-1].item()
 
-    # BUY condition
-    buy_signal = (prev_ema9 < prev_ema21 and last_ema9 > last_ema21 and
-                  last_close > last_ema50 and last_rsi < 70)
-
-    # SELL condition
-    sell_signal = (prev_ema9 > prev_ema21 and last_ema9 < last_ema21 and
-                   last_close < last_ema50 and last_rsi > 30)
+    buy_signal = prev_ema9 < prev_ema21 and last_ema9 > last_ema21 and last_close > last_ema50 and last_rsi < 70
+    sell_signal = prev_ema9 > prev_ema21 and last_ema9 < last_ema21 and last_close < last_ema50 and last_rsi > 30
 
     if buy_signal:
         return "BUY", last_close
@@ -98,8 +93,6 @@ def check_trade(pair, signal, entry):
         return None
     last = df['Close'].iloc[-1].item()
     hits = {"TP1_hit": False, "TP2_hit": False, "TP3_hit": False, "SL_hit": False}
-
-    # Convert PIPS to price difference (adjust per instrument)
     factor = 0.0001 if "USD" in pair else 1
 
     if signal == "BUY":
@@ -129,16 +122,13 @@ def log_trade(pair, signal, entry, hits):
     if VERBOSE:
         print(f"[LOG] {pair} | {signal} | Entry: {entry} | Hits: {hits}")
 
-# --- Bot Loop ---
-
 def run_bot():
-    active_trades = {}  # pair -> (signal, entry)
+    active_trades = {}
     while True:
         for pair in PAIRS:
-            # Generate new signal if no active trade
             if pair not in active_trades:
                 df = fetch_data(pair)
-                if df is None: 
+                if df is None:
                     continue
                 signal, entry = precision_signal(df)
                 if signal:
@@ -146,13 +136,11 @@ def run_bot():
                     if VERBOSE:
                         print(f"[SIGNAL] {pair} | {signal} | Entry: {entry}")
             else:
-                # Check active trade
                 signal, entry = active_trades[pair]
                 hits = check_trade(pair, signal, entry)
                 if hits is None:
                     continue
                 log_trade(pair, signal, entry, hits)
-                # Close trade if TP3 or SL hit
                 if hits["TP3_hit"] or hits["SL_hit"]:
                     if VERBOSE:
                         print(f"[CLOSE] {pair} | {signal} closed.")
