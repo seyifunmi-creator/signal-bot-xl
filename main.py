@@ -317,49 +317,51 @@ def train_heuristic():
 def open_trade(pair, signal, current_price, df=None):
     """
     Opens a trade with properly scaled TP and SL for all pairs
+    Includes try/except to prevent runtime crashes
     """
-    # Determine pip unit based on pair
-    def get_pip_unit(pair: str) -> float:
-        pair = pair.upper()
-        if "JPY" in pair:
-            return 0.01
-        elif "XAU" in pair or "GOLD" in pair:
-            return 1.0
+    try:
+        # Determine pip unit based on pair
+        def get_pip_unit(pair: str) -> float:
+            pair = pair.upper()
+            if "JPY" in pair:
+                return 0.01
+            elif "XAU" in pair or "GOLD" in pair:
+                return 1.0
+            else:
+                return 0.0001
+
+        pip_unit = get_pip_unit(pair)
+
+        # ATR-based TP/SL (optional, uses EMA/RSI)
+        atr = calculate_atr(df) if df is not None else None
+        if atr is not None:
+            tp1_val = atr
+            tp2_val = atr * 2
+            tp3_val = atr * 3
+            sl_val = atr * 1.25
         else:
-            return 0.0001
+            tp1_val = TP1 * pip_unit
+            tp2_val = (TP1 + TP2) * pip_unit
+            tp3_val = (TP1 + TP2 + TP3) * pip_unit
+            sl_val = SL * pip_unit
 
-    pip_unit = get_pip_unit(pair)
+        active_trades[pair] = {
+            'Pair': pair,
+            'Signal': signal,
+            'Entry': current_price,
+            'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
+            'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
+            'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
+            'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
+            'TP1_hit': False,
+            'TP2_hit': False,
+            'TP3_hit': False,
+            'SL_hit': False,
+            'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
 
-    # ATR-based TP/SL (optional, uses EMA/RSI)
-    atr = calculate_atr(df) if df is not None else None
-    if atr is not None:
-        tp1_val = atr
-        tp2_val = atr * 2
-        tp3_val = atr * 3
-        sl_val = atr * 1.25
-    else:
-        tp1_val = TP1 * pip_unit
-        tp2_val = (TP1 + TP2) * pip_unit
-        tp3_val = (TP1 + TP2 + TP3) * pip_unit
-        sl_val = SL * pip_unit
+        print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
 
-    active_trades[pair] = {
-        'Pair': pair,
-        'Signal': signal,
-        'Entry': current_price,
-        'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
-        'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
-        'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
-        'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
-        'TP1_hit': False,
-        'TP2_hit': False,
-        'TP3_hit': False,
-        'SL_hit': False,
-        'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-
-    print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
-    log(f"Opened {pair} {signal} @ {current_price} mode={mode}")
     except Exception as e:
         log(f"open_trade error for {pair}: {e}")
 
@@ -367,22 +369,28 @@ def compute_live_pnl(trade, current_price):
     """
     Calculates live P/L in pips using the same pip_unit logic as TP/SL
     """
-    def get_pip_unit(pair: str) -> float:
-        pair = pair.upper()
-        if "JPY" in pair:
-            return 0.01
-        elif "XAU" in pair or "GOLD" in pair:
-            return 1.0
+    try:
+        # Determine pip unit
+        def get_pip_unit(pair: str) -> float:
+            pair = pair.upper()
+            if "JPY" in pair:
+                return 0.01
+            elif "XAU" in pair or "GOLD" in pair:
+                return 1.0
+            else:
+                return 0.0001
+
+        pip_unit = get_pip_unit(trade['Pair'])
+
+        # Calculate P/L in pips
+        if trade['Signal'] == 'BUY':
+            return (current_price - trade['Entry']) / pip_unit
         else:
-            return 0.0001
+            return (trade['Entry'] - current_price) / pip_unit
 
-    pip_unit = get_pip_unit(trade['Pair'])
-
-    if trade['Signal'] == 'BUY':
-        return (current_price - trade['Entry']) / pip_unit
-    else:
-        return (trade['Entry'] - current_price) / pip_unit
-
+    except Exception as e:
+        log(f"compute_live_pnl error for {trade['Pair']}: {e}")
+        return 0.0
 def log_trade_to_csv(trade):
     try:
         df = pd.DataFrame([{
