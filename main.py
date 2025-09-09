@@ -54,7 +54,6 @@ def generate_signal(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
-    # Use .item() to extract scalar
     ema5_last = last['EMA5'].item()
     ema12_last = last['EMA12'].item()
     ema5_prev = prev['EMA5'].item()
@@ -74,25 +73,24 @@ def check_trades(pair, df):
     trade = active_trades[pair]
     current_price = df['Close'].iloc[-1].item()
 
-    # Adjust TP/SL for pip unit
     pip_unit = 0.0001
     if 'JPY' in pair:
         pip_unit = 0.01
     elif pair == 'GC=F':
         pip_unit = 0.1
 
-    tp1 = trade['TP1'].item() if isinstance(trade['TP1'], pd.Series) else trade['TP1']
-    tp2 = trade['TP2'].item() if isinstance(trade['TP2'], pd.Series) else trade['TP2']
-    tp3 = trade['TP3'].item() if isinstance(trade['TP3'], pd.Series) else trade['TP3']
-    sl = trade['SL'].item() if isinstance(trade['SL'], pd.Series) else trade['SL']
+    tp1 = trade['TP1']
+    tp2 = trade['TP2']
+    tp3 = trade['TP3']
+    sl = trade['SL']
 
-    if not trade['TP1_hit'] and current_price >= tp1:
+    if not trade['TP1_hit'] and ((trade['Signal']=='BUY' and current_price >= tp1) or (trade['Signal']=='SELL' and current_price <= tp1)):
         trade['TP1_hit'] = True
-    if not trade['TP2_hit'] and current_price >= tp2:
+    if not trade['TP2_hit'] and ((trade['Signal']=='BUY' and current_price >= tp2) or (trade['Signal']=='SELL' and current_price <= tp2)):
         trade['TP2_hit'] = True
-    if not trade['TP3_hit'] and current_price >= tp3:
+    if not trade['TP3_hit'] and ((trade['Signal']=='BUY' and current_price >= tp3) or (trade['Signal']=='SELL' and current_price <= tp3)):
         trade['TP3_hit'] = True
-    if not trade['SL_hit'] and current_price <= sl:
+    if not trade['SL_hit'] and ((trade['Signal']=='BUY' and current_price <= sl) or (trade['Signal']=='SELL' and current_price >= sl)):
         trade['SL_hit'] = True
 
     if (trade['TP1_hit'] and trade['TP2_hit'] and trade['TP3_hit']) or trade['SL_hit']:
@@ -147,7 +145,7 @@ def display_dashboard():
             print(f"  {PAIR_NAMES.get(pair, pair)}: WAIT")
 
     print("\nClosed Trades Stats:")
-    wins = sum(1 for t in closed_trades if t['Close_Price'] >= t['Entry'])
+    wins = sum(1 for t in closed_trades if (t['Close_Price'] - t['Entry'] > 0 and t['Signal']=='BUY') or (t['Entry'] - t['Close_Price'] > 0 and t['Signal']=='SELL'))
     losses = len(closed_trades) - wins
     total = len(closed_trades)
     win_rate = (wins/total*100) if total>0 else 0.0
@@ -171,19 +169,18 @@ def run_bot():
                 continue
             signal = generate_signal(df)
 
-            # Optional trend check
-            if signal is not None and len(df) >= 3:
-                recent = df['Close'].iloc[-3:]
-                diffs = recent.diff().dropna()
-                if signal == 'BUY' and all(diffs > 0):
-                    open_trade(pair, signal, recent.iloc[-1].item())
-                elif signal == 'SELL' and all(diffs < 0):
-                    open_trade(pair, signal, recent.iloc[-1].item())
+            # ===========================
+            # DEBUG MODE: print signal and open trade immediately
+            # ===========================
+            if signal is not None:
+                print(f"[DEBUG] Signal for {pair}: {signal} at {df['Close'].iloc[-1].item():.5f}")
+                if pair not in active_trades:
+                    open_trade(pair, signal, df['Close'].iloc[-1].item())
 
             check_trades(pair, df)
         display_dashboard()
         time.sleep(SLEEP_INTERVAL)
 
 if __name__ == "__main__":
-    print(f"[INFO] Precision Bot (enhanced, precise + TP sequence dashboard + logging) starting. Pairs: {PAIRS}")
+    print(f"[INFO] Precision Bot (debug mode) starting. Pairs: {PAIRS}")
     run_bot()
