@@ -32,12 +32,6 @@ def get_pip_unit(pair: str) -> float:
     else:
         return 0.0001
 
-# Example usage inside open_trade() or wherever you calculate TP/SL:
-pip_unit = get_pip_unit(pair)
-tp1_price = entry_price + (TP1 * pip_unit)
-tp2_price = entry_price + (TP2 * pip_unit)
-tp3_price = entry_price + (TP3 * pip_unit)
-sl_price  = entry_price - (SL * pip_unit)
 
 # delayed import of heavy libs inside try to log errors cleanly
 try:
@@ -314,25 +308,22 @@ def train_heuristic():
 # ===========================
 # TRADING: open/check/log
 # ===========================
+
+
 def open_trade(pair, signal, current_price, df=None):
     """
     Opens a trade with properly scaled TP and SL for all pairs
     Includes try/except to prevent runtime crashes
     """
-    try:
-        # Determine pip unit based on pair
-        def get_pip_unit(pair: str) -> float:
-            pair = pair.upper()
-            if "JPY" in pair:
-                return 0.01
-            elif "XAU" in pair or "GOLD" in pair:
-                return 1.0
-            else:
-                return 0.0001
-
+    try: 
+        # Pip unit & TP/SL calculation (pair & current_price are defined here)
         pip_unit = get_pip_unit(pair)
+        tp1_price = current_price + (TP1 * pip_unit) if signal == 'BUY' else current_price - (TP1 * pip_unit)
+        tp2_price = current_price + ((TP1+TP2) * pip_unit) if signal == 'BUY' else current_price - ((TP1+TP2) * pip_unit)
+        tp3_price = current_price + ((TP1+TP2+TP3) * pip_unit) if signal == 'BUY' else current_price - ((TP1+TP2+TP3) * pip_unit)
+        sl_price  = current_price - (SL * pip_unit) if signal == 'BUY' else current_price + (SL * pip_unit)
 
-        # ATR-based TP/SL
+        # ATR-based TP/SL adjustments
         atr = calculate_atr(df) if df is not None else None
         if atr is not None:
             tp1_val = atr
@@ -345,6 +336,7 @@ def open_trade(pair, signal, current_price, df=None):
             tp3_val = (TP1 + TP2 + TP3) * pip_unit
             sl_val = SL * pip_unit
 
+        # Save trade
         active_trades[pair] = {
             'Pair': pair,
             'Signal': signal,
@@ -360,14 +352,12 @@ def open_trade(pair, signal, current_price, df=None):
             'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
-        # ✅ Safe log: pair is defined here
+        # Logging
         log(f"Opened {pair} {signal} @ {current_price} mode={'TEST' if TEST_MODE else 'LIVE'}")
-
         print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
 
     except Exception as e:
         log(f"open_trade error for {pair}: {e}")
-
 def compute_live_pnl(trade, current_price):
     """
     Calculates live P/L in pips using the same pip_unit logic as TP/SL
