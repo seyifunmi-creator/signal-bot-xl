@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import time
 from datetime import datetime
+import os
 
 # ================== CONFIGURATION (Embedded) ==================
 PAIRS = {
@@ -53,12 +54,12 @@ def generate_signal(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
     # Ensure scalars to avoid pandas Series ambiguity
-    ema5_last = float(last['EMA5'])
-    ema12_last = float(last['EMA12'])
-    ema5_prev = float(prev['EMA5'])
-    ema12_prev = float(prev['EMA12'])
-    rsi_last = float(last['RSI'])
-    # Signal logic
+    ema5_last = last['EMA5']
+    ema12_last = last['EMA12']
+    ema5_prev = prev['EMA5']
+    ema12_prev = prev['EMA12']
+    rsi_last = last['RSI']
+
     if ema5_prev < ema12_prev and ema5_last > ema12_last and rsi_last < 70:
         return 'BUY'
     elif ema5_prev > ema12_prev and ema5_last < ema12_last and rsi_last > 30:
@@ -75,7 +76,7 @@ def compute_ATR(df, period=14):
         df['ATR'] = df['TR'].rolling(period).mean()
         return df
     except:
-        return None
+        return df
 
 def open_trade(pair, signal, price):
     global active_trades
@@ -94,12 +95,32 @@ def open_trade(pair, signal, price):
         'hit': {'TP1': False,'TP2': False,'TP3': False,'SL': False}
     }
 
+def log_trade(pair, trade, status):
+    file_exists = os.path.isfile('trades_log.csv')
+    df_log = pd.DataFrame([{
+        'Timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'Pair': PAIRS[pair],
+        'Signal': trade['signal'],
+        'Entry': trade['entry'],
+        'TP1': trade['TP1'],
+        'TP2': trade['TP2'],
+        'TP3': trade['TP3'],
+        'SL': trade['SL'],
+        'Hit_TP1': trade['hit']['TP1'],
+        'Hit_TP2': trade['hit']['TP2'],
+        'Hit_TP3': trade['hit']['TP3'],
+        'Hit_SL': trade['hit']['SL'],
+        'Status': status
+    }])
+    df_log.to_csv('trades_log.csv', mode='a', header=not file_exists, index=False)
+
 def check_trades(df_pair, pair):
     global active_trades, closed_trades
     if pair not in active_trades:
         return
     trade = active_trades[pair]
-    last_price = float(df_pair['Close'].iloc[-1])
+    last_price = df_pair['Close'].iloc[-1]
+
     # Check TP/SL hits
     if not trade['hit']['TP1']:
         if (trade['signal']=='BUY' and last_price >= trade['TP1']) or (trade['signal']=='SELL' and last_price <= trade['TP1']):
@@ -113,36 +134,33 @@ def check_trades(df_pair, pair):
     if not trade['hit']['SL']:
         if (trade['signal']=='BUY' and last_price <= trade['SL']) or (trade['signal']=='SELL' and last_price >= trade['SL']):
             trade['hit']['SL'] = True
+
     # Close trade if all TP or SL hit
     if trade['hit']['SL'] or (trade['hit']['TP1'] and trade['hit']['TP2'] and trade['hit']['TP3']):
-        closed_trades[pair].append({
-            'signal': trade['signal'],
-            'entry': trade['entry'],
-            'TP1': trade['TP1'],
-            'TP2': trade['TP2'],
-            'TP3': trade['TP3'],
-            'SL': trade['SL'],
-            'hit': trade['hit']
-        })
+        status = 'Loss' if trade['hit']['SL'] else 'Win'
+        log_trade(pair, trade, status)
+        closed_trades[pair].append(trade)
         del active_trades[pair]
 
 def display_dashboard():
     print("\n====== Precision Bot Live Dashboard ======")
     print("Time:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"),"\n")
     print("Active Trades:\n")
-    for pair, trade in active_trades.items():
-        tp1_status = "✔" if trade['hit']['TP1'] else "…"
-        tp2_status = "✔" if trade['hit']['TP2'] else "…"
-        tp3_status = "✔" if trade['hit']['TP3'] else "…"
-        sl_status = "✔" if trade['hit']['SL'] else "…"
-        print(f"  {PAIRS[pair]}: {trade['signal']} @ {trade['entry']:.5f} | "
-              f"TP1: {trade['TP1']:.5f}{tp1_status} | "
-              f"TP2: {trade['TP2']:.5f}{tp2_status} | "
-              f"TP3: {trade['TP3']:.5f}{tp3_status} | "
-              f"SL: {trade['SL']:.5f}{sl_status} | "
-              f"Live P/L: {0.0:.1f} pips")
-    if not active_trades:
-        print("  None")
+    for pair in PAIRS.keys():
+        trade = active_trades.get(pair)
+        if trade:
+            tp1_status = "✔" if trade['hit']['TP1'] else "…"
+            tp2_status = "✔" if trade['hit']['TP2'] else "…"
+            tp3_status = "✔" if trade['hit']['TP3'] else "…"
+            sl_status = "✔" if trade['hit']['SL'] else "…"
+            print(f"  {PAIRS[pair]}: {trade['signal']} @ {trade['entry']:.5f} | "
+                  f"TP1: {trade['TP1']:.5f}{tp1_status} | "
+                  f"TP2: {trade['TP2']:.5f}{tp2_status} | "
+                  f"TP3: {trade['TP3']:.5f}{tp3_status} | "
+                  f"SL: {trade['SL']:.5f}{sl_status} | "
+                  f"Live P/L: {0.0:.1f} pips")
+        else:
+            print(f"  {PAIRS[pair]}: WAIT")  # Show WAIT if no active signal
 
     print("\nClosed Trades Stats:")
     total_wins = sum(1 for trades in closed_trades.values() for t in trades if any([t['hit']['TP1'],t['hit']['TP2'],t['hit']['TP3']]))
@@ -159,22 +177,15 @@ def display_dashboard():
             profit = 0
             for key in ['TP1','TP2','TP3']:
                 if t['hit'][key]:
-                    if t['signal']=='BUY':
-                        profit += (t[key]-t['entry'])/pip_factor
-                    else:
-                        profit += (t['entry']-t[key])/pip_factor
+                    profit += (t[key]-t['entry'])/pip_factor if t['signal']=='BUY' else (t['entry']-t[key])/pip_factor
             if t['hit']['SL']:
-                if t['signal']=='BUY':
-                    profit += (t['SL']-t['entry'])/pip_factor
-                else:
-                    profit += (t['entry']-t['SL'])/pip_factor
+                profit += (t['SL']-t['entry'])/pip_factor if t['signal']=='BUY' else (t['entry']-t['SL'])/pip_factor
             pip_total += profit
         print(f"  {PAIRS[pair]}: {pip_total:.1f} pips")
     print("========================================\n")
 
 # ================== MAIN BOT LOOP ==================
 def run_bot():
-    print("[INFO] Precision Bot (enhanced, precise + TP sequence dashboard) starting. Pairs:", list(PAIRS.keys()))
     while True:
         for pair in PAIRS.keys():
             df = fetch_data(pair)
@@ -184,11 +195,12 @@ def run_bot():
             df = compute_ATR(df)
             signal = generate_signal(df)
             if signal and pair not in active_trades:
-                open_trade(pair, signal, float(df['Close'].iloc[-1]))
+                open_trade(pair, signal, df['Close'].iloc[-1])
             check_trades(df, pair)
         display_dashboard()
         time.sleep(MONITOR_SLEEP)
 
 # ================== RUN ==================
 if __name__ == "__main__":
+    print("[INFO] Precision Bot (enhanced, precise + TP sequence dashboard + logging) starting. Pairs:", list(PAIRS.keys()))
     run_bot()
