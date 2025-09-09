@@ -32,16 +32,17 @@ closed_trades = []
 # ===========================
 def fetch_data(pair, interval='1m', period='3d'):
     try:
-        df = yf.download(pair, period=period, interval=interval, progress=False)
+        df = yf.download(pair, period=period, interval=interval, progress=False, auto_adjust=True)
         if df.empty:
             return None
-        df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
-        df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
+        if len(df) >= 12:  # minimal for EMA12
+            df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
+            df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean()
         delta = df['Close'].diff()
         up, down = delta.clip(lower=0), -1*delta.clip(upper=0)
         roll_up = up.rolling(14).mean()
         roll_down = down.rolling(14).mean()
-        df['RSI'] = 100 - (100 / (1 + roll_up / roll_down))
+        df['RSI'] = 100 - (100 / (1 + roll_up / (roll_down + 1e-8)))  # prevent div by zero
         return df
     except Exception as e:
         print(f"[ERROR] Failed to fetch {pair}: {e}")
@@ -53,7 +54,6 @@ def generate_signal(df):
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
-    # Convert to scalars
     ema5_last = float(last['EMA5'])
     ema12_last = float(last['EMA12'])
     ema5_prev = float(prev['EMA5'])
@@ -71,8 +71,15 @@ def check_trades(pair, df):
     if pair not in active_trades or df is None or df.empty:
         return
     trade = active_trades[pair]
-    current_price = float(df.iloc[-1]['Close'])
-    # Convert TP/SL to floats
+    current_price = float(df['Close'].iloc[-1])
+
+    # Adjust TP/SL for pip unit
+    pip_unit = 0.0001
+    if 'JPY' in pair:
+        pip_unit = 0.01
+    elif pair == 'GC=F':
+        pip_unit = 0.1
+
     tp1 = float(trade['TP1'])
     tp2 = float(trade['TP2'])
     tp3 = float(trade['TP3'])
@@ -87,22 +94,27 @@ def check_trades(pair, df):
     if not trade['SL_hit'] and current_price <= sl:
         trade['SL_hit'] = True
 
-    # If any TP or SL is hit, close trade
-    if trade['TP1_hit'] and trade['TP2_hit'] and trade['TP3_hit'] or trade['SL_hit']:
+    if (trade['TP1_hit'] and trade['TP2_hit'] and trade['TP3_hit']) or trade['SL_hit']:
         trade['Close_Price'] = current_price
         trade['Close_Time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         closed_trades.append(trade)
         del active_trades[pair]
 
 def open_trade(pair, signal, current_price):
+    pip_unit = 0.0001
+    if 'JPY' in pair:
+        pip_unit = 0.01
+    elif pair == 'GC=F':
+        pip_unit = 0.1
+
     active_trades[pair] = {
         'Pair': pair,
         'Signal': signal,
         'Entry': current_price,
-        'TP1': current_price + TP1*0.0001 if signal=='BUY' else current_price - TP1*0.0001,
-        'TP2': current_price + (TP1+TP2)*0.0001 if signal=='BUY' else current_price - (TP1+TP2)*0.0001,
-        'TP3': current_price + (TP1+TP2+TP3)*0.0001 if signal=='BUY' else current_price - (TP1+TP2+TP3)*0.0001,
-        'SL': current_price - SL*0.0001 if signal=='BUY' else current_price + SL*0.0001,
+        'TP1': current_price + TP1*pip_unit if signal=='BUY' else current_price - TP1*pip_unit,
+        'TP2': current_price + (TP1+TP2)*pip_unit if signal=='BUY' else current_price - (TP1+TP2)*pip_unit,
+        'TP3': current_price + (TP1+TP2+TP3)*pip_unit if signal=='BUY' else current_price - (TP1+TP2+TP3)*pip_unit,
+        'SL': current_price - SL*pip_unit if signal=='BUY' else current_price + SL*pip_unit,
         'TP1_hit': False,
         'TP2_hit': False,
         'TP3_hit': False,
@@ -127,7 +139,10 @@ def display_dashboard():
     if active_trades:
         for trade in active_trades.values():
             df = fetch_data(trade['Pair'], interval='1m', period='1d')
-            current_price = float(df.iloc[-1]['Close'])
+            if df is None or df.empty:
+                current_price = trade['Entry']
+            else:
+                current_price = float(df['Close'].iloc[-1])
             live_pnl = compute_live_pnl(trade, current_price)
             print(f"  {PAIR_NAMES[trade['Pair']]}: {trade['Signal']} @ {trade['Entry']:.5f} | "
                   f"TP1: {trade['TP1']:.5f} | TP2: {trade['TP2']:.5f} | TP3: {trade['TP3']:.5f} | "
@@ -160,9 +175,15 @@ def run_bot():
             if df is None:
                 continue
             signal = generate_signal(df)
-            # Open trade if none active
-            if pair not in active_trades and signal is not None:
-                open_trade(pair, signal, float(df.iloc[-1]['Close']))
+
+            # Optional trend check to reduce false entries
+            if signal is not None and len(df) >= 3:
+                recent = df['Close'].iloc[-3:]
+                if signal == 'BUY' and all(recent.diff() > 0):
+                    open_trade(pair, signal, float(df['Close'].iloc[-1]))
+                elif signal == 'SELL' and all(recent.diff() < 0):
+                    open_trade(pair, signal, float(df['Close'].iloc[-1]))
+
             check_trades(pair, df)
         display_dashboard()
         time.sleep(SLEEP_INTERVAL)
