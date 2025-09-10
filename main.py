@@ -140,19 +140,43 @@ def fetch_data(pair, interval='5m', period_days=30):
         log(f"fetch_data failed for {pair}: {e}")
         return None
 
+from twelvedata import TDClient
+
+# Initialize Twelve Data client with your API key
+TD_API_KEY = "d7bae6cd7a9147ba9870e98ec953d00b"
+td = TDClient(apikey=TD_API_KEY)
+
 def get_live_price(pair):
-    """Try fast_info last_price, fallback to 1m history close"""
+    """
+    Returns real-time price for the pair using Twelve Data API.
+    Supports all your bot pairs including Gold (XAU/USD).
+    """
+    # Map symbols if needed to match Twelve Data format
+    symbol_map = {
+        'EURUSD=X': 'EUR/USD',
+        'GBPUSD=X': 'GBP/USD',
+        'USDJPY=X': 'USD/JPY',
+        'USDCAD=X': 'USD/CAD',
+        'GC=F': 'XAU/USD'
+    }
+    
+    symbol = symbol_map.get(pair, pair)
+    
     try:
-        ticker = yf.Ticker(pair)
-        info = getattr(ticker, 'fast_info', None)
-        if info and 'last_price' in info:
-            return float(info['last_price'])
-        h = ticker.history(period='1d', interval='1m')
-        if not h.empty:
-            return float(h['Close'].iloc[-1])
-        return None
+        price_data = td.time_series(
+            symbol=symbol,
+            interval="1min",
+            outputsize=1,
+            timezone="Etc/UTC"
+        ).as_pandas()
+        
+        if not price_data.empty:
+            return float(price_data['close'].iloc[-1])
+        else:
+            print(f"[WARNING] No price data returned for {symbol}")
+            return None
     except Exception as e:
-        log(f"get_live_price failed for {pair}: {e}")
+        print(f"[ERROR] Twelve Data fetch failed for {symbol}: {e}")
         return None
 
 def calculate_atr(df, period=14):
