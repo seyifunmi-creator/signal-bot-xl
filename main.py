@@ -610,6 +610,32 @@ def run_bot():
                     # Apply a small loosened acceptance filter using trained_stats (improves precision but not overly strict)
                     accept_signal = False
                     if signal:
+                    # Pair-specific SL and TP rules
+                    gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+
+                    if signal == "BUY":
+                        if pair in gold_pairs:
+                            tp1 = entry_price + 0.0050   # +50 pips
+                            tp2 = entry_price + 0.0100   # +100 pips
+                            tp3 = entry_price + 0.0150   # +150 pips
+                            sl  = entry_price - 0.0070   # -70 pips
+                       else:
+                           tp1 = entry_price + 0.0040   # +40 pips
+                           tp2 = entry_price + 0.0080   # +80 pips
+                           tp3 = entry_price + 0.0120   # +120 pips
+                           sl  = entry_price - 0.0050   # -50 pips
+
+                  elif signal == "SELL":
+                      if pair in gold_pairs:
+                          tp1 = entry_price - 0.0050   # -50 pips
+                          tp2 = entry_price - 0.0100   # -100 pips
+                          tp3 = entry_price - 0.0150   # -150 pips
+                          sl  = entry_price + 0.0070   # +70 pips
+                      else:
+                          tp1 = entry_price - 0.0040   # -40 pips
+                          tp2 = entry_price - 0.0080   # -80 pips
+                          tp3 = entry_price - 0.0120   # -120 pips
+                          sl  = entry_price + 0.0050   # +50 pips  
                         stats = trained_stats.get(pair)
                         if not stats:
                             # no trained stats: accept signal (keeps signals frequent)
