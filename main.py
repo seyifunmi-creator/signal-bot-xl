@@ -13,6 +13,12 @@ import os
 import sys
 import traceback
 from datetime import datetime
+
+# ---------------- New imports for hybrid bot ----------------
+import pandas as pd
+import MetaTrader5 as mt5
+from flask import Flask, request, jsonify
+import threading
 # ===========================
 # Pip unit helper and TP/SL calculation
 # ===========================
@@ -140,44 +146,7 @@ def fetch_data(pair, interval='5m', period_days=30):
         log(f"fetch_data failed for {pair}: {e}")
         return None
 
-from twelvedata import TDClient
-
-# Initialize Twelve Data client with your API key
-TD_API_KEY = "d7bae6cd7a9147ba9870e98ec953d00b"
-td = TDClient(apikey=TD_API_KEY)
-
-def get_live_price(pair):
-    """
-    Returns real-time price for the pair using Twelve Data API.
-    Supports all your bot pairs including Gold (XAU/USD).
-    """
-    # Map symbols if needed to match Twelve Data format
-    symbol_map = {
-        'EURUSD=X': 'EUR/USD',
-        'GBPUSD=X': 'GBP/USD',
-        'USDJPY=X': 'USD/JPY',
-        'USDCAD=X': 'USD/CAD',
-        'GC=F': 'XAU/USD'
-    }
-    
-    symbol = symbol_map.get(pair, pair)
-    
-    try:
-        price_data = td.time_series(
-            symbol=symbol,
-            interval="1min",
-            outputsize=1,
-            timezone="Etc/UTC"
-        ).as_pandas()
-        
-        if not price_data.empty:
-            return float(price_data['close'].iloc[-1])
-        else:
-            print(f"[WARNING] No price data returned for {symbol}")
-            return None
-    except Exception as e:
-        print(f"[ERROR] Twelve Data fetch failed for {symbol}: {e}")
-        return None
+ 
 
 def calculate_atr(df, period=14):
     try:
@@ -612,29 +581,87 @@ def run_bot():
 # ===========================
 # ENTRY POINT (with y/n startup prompt and safety)
 # ===========================
+
+
+# ---------------- Existing imports ----------------
+import time
+import pandas as pd
+import MetaTrader5 as mt5
+from flask import Flask, request, jsonify
+import threading
+
+# ---------------- Existing bot functions ----------------
+# (your precision bot functions, run_bot(), etc.)
+
+# ---------------- Hybrid code functions ----------------
+
+# Initialize MT5
+def init_mt5():
+    if not mt5.initialize():
+        print("MT5 initialize() failed")
+        mt5.shutdown()
+    else:
+        account_info = mt5.account_info()
+        print(f"Connected to MT5 Demo Account: {account_info.login}, Balance: {account_info.balance}")
+
+# Live P/L Loop
+def pl_loop():
+    symbols = ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "XAUUSD"]
+    while True:
+        positions = mt5.positions_get()
+        if positions:
+            for pos in positions:
+                symbol = pos.symbol
+                trade_type = "Buy" if pos.type == 0 else "Sell"
+                entry_price = pos.price_open
+                tick = mt5.symbol_info_tick(symbol)
+                if tick:
+                    current_price = tick.bid if pos.type == 0 else tick.ask
+                    if symbol == "XAUUSD":
+                        pl = current_price - entry_price
+                    elif "JPY" in symbol:
+                        pl = (current_price - entry_price) * 100
+                    else:
+                        pl = (current_price - entry_price) * 10000
+                    print(f"{symbol} | {trade_type} | Entry: {entry_price} | Current: {current_price} | P/L: {pl}")
+        time.sleep(2)
+
+# Flask webhook
+app = Flask(_name_)
+signals = []
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    signals.append(data)
+    print(f"New signal received: {data}")
+    return jsonify({"status": "ok"})
+
+# ---------------- Main startup ----------------
 if __name__ == '__main__':
     try:
+        # Your existing startup code
         startup_banner()
-        # prompt (strict y or n)
+        # prompt test mode
         mode_input = ''
         while mode_input not in ('y', 'n'):
             mode_input = input("Start in test mode? (y/n): ").strip().lower()
-        if mode_input == 'y':
-            TEST_MODE = True
-            print("\033[93m[INFO] Starting in TEST MODE (one-cycle enabled).\033[0m")
-        else:
-            TEST_MODE = False
-            print("\033[92m[INFO] Starting in LIVE MODE.\033[0m")
+        TEST_MODE = (mode_input == 'y')
 
-        print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
-        run_bot()
+        print(f"Precision Bot starting. Test Mode: {TEST_MODE}")
+        
+        # ---------------- Start Hybrid ----------------
+        init_mt5()
+        threading.Thread(target=pl_loop, daemon=True).start()  # P/L updates
+        threading.Thread(target=run_bot, daemon=True).start()  # Precision bot
+        app.run(port=5000)  # Flask webhook
+
     except KeyboardInterrupt:
-        print("\n[INFO] Shutdown requested (KeyboardInterrupt). Exiting.")
+        print("\n[INFO] Shutdown requested.")
         log("Shutdown by user (KeyboardInterrupt).")
         sys.exit(0)
     except Exception as e:
-        print("!!! FATAL ERROR DURING BOT STARTUP OR RUNTIME !!!")
-        print(f"{type(e)._name_}: {e}")
+        print("!!! FATAL ERROR !!!")
         traceback.print_exc()
-        log(f"FATAL error: {type(e)._name_}: {e}")
+        log(f"FATAL error: {e}")
         sys.exit(1)
