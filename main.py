@@ -372,9 +372,7 @@ def compute_live_pnl(trade, current_price):
 
     return round(pnl, 2)
 
-    except Exception as e:
-        log(f"compute_live_pnl error for {trade['Pair']}: {e}")
-        return 0.0
+   
 def log_trade_to_csv(trade):
     try:
         df = pd.DataFrame([{
