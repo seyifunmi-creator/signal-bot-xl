@@ -17,14 +17,6 @@ import pandas as pd
 import MetaTrader5 as mt5
 from flask import Flask, request, jsonify
 
-# delayed heavy import handled later (yfinance)
-try:
-    import yfinance as yf
-except Exception as e:
-    print("!!! IMPORT ERROR !!! Make sure yfinance is installed in this Python environment.")
-    traceback.print_exc()
-    sys.exit(1)
-
 # -------------------------------
 # Flask Webhook Setup (optional use)
 # -------------------------------
@@ -164,7 +156,9 @@ def fetch_data(pair, interval='5m', period_days=30):
     """Fetch historical data and compute EMA/RSI (preserves your implementation)."""
     try:
         period_str = f"{period_days}d"
-        df = yf.download(pair, period=period_str, interval=interval, progress=False, auto_adjust=True)
+        rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M5, 0, 500)  # example: 500 candles, 5m timeframe
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
         if df is None or df.empty:
             return None
         if len(df) >= 5:
