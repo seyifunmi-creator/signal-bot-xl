@@ -371,7 +371,38 @@ def compute_live_pnl(trade, current_price):
         pnl = (trade['Entry'] - current_price) * pip_factor
 
     return round(pnl, 2)
+    
+def suggest_tp(trade, historical_df, pair):
+    """
+    Suggest whether TP3 is realistically achievable based on recent historical data.
+    Inputs:
+        trade: the active trade dictionary
+        historical_df: past 1 month or chosen period of OHLC data
+        pair: trading pair string
+    Returns:
+        suggestion string: "TP3 likely", "TP2 safer", or "TP1 only"
+    """
+    if historical_df is None or historical_df.empty:
+        return "No suggestion"
 
+    # Use ATR to estimate typical movement
+    atr = calculate_atr(historical_df)
+    if atr is None:
+        return "No suggestion"
+
+    # Calculate remaining potential to TP3
+    if trade['Signal'] == 'BUY':
+        remaining = trade['TP3'] - trade['Entry']
+    else:
+        remaining = trade['Entry'] - trade['TP3']
+
+    # Heuristic: if TP3 > 2x ATR, suggest closing earlier
+    if remaining > 2 * atr:
+        return "TP2 safer"
+    elif remaining > atr:
+        return "TP1 only"
+    else:
+        return "TP3 likely"
    
 def log_trade_to_csv(trade):
     try:
@@ -450,6 +481,12 @@ def check_trades(pair, current_price, df=None):
             trade['SL_hit'] = True
             print(f"\033[91m[SL HIT] {PAIR_NAMES[pair]} hit SL @ {current_price:.5f}\033[0m")
             log(f"{pair} SL hit @ {current_price}")
+
+        # TP suggestion
+        if not trade['SL_hit']:
+            historical_df = fetch_data(pair, interval='5m', period='1mo')  # 1 month, 5m bars
+            suggestion = suggest_tp(trade, historical_df, pair)
+            print(f"\033[93m[Suggestion] {PAIR_NAMES[pair]}: {suggestion}\033[0m")
 
         # Close condition: TP3 or SL (keeps previous behavior of holding through TP1/TP2)
         if (trade['TP3_hit']) or trade['SL_hit']:
