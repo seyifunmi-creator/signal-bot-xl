@@ -28,7 +28,7 @@ except Exception as e:
 # -------------------------------
 # Flask Webhook Setup (optional use)
 # -------------------------------
-app = Flask(_name_)
+app = Flask(__name__)
 signals = []  # Store incoming external signals
 
 @app.route("/webhook", methods=["POST"])
@@ -702,7 +702,7 @@ def init_mt5_once():
         info = mt5.account_info()
         print(f"Connected to MT5 Demo Account: {info.login}, Balance: {info.balance}")
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     try:
         startup_banner()
         # startup prompt
