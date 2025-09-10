@@ -29,7 +29,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-         pip install yfinance pandas MetaTrader5 pyinstaller
+         pip install yfinance pandas MetaTrader5 flask pyinstaller
 
       - name: Build executable (console mode for debugging)
         run: |
