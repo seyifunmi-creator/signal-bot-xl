@@ -725,7 +725,7 @@ if _name_ == '_main_':
         init_mt5_once()
         threading.Thread(target=pl_loop, daemon=True).start()
 
-        Start main bot loop (blocking)
+        # Start main bot loop (blocking)
         run_bot()
 
     except KeyboardInterrupt:
