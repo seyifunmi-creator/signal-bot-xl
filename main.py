@@ -19,6 +19,44 @@ import pandas as pd
 import MetaTrader5 as mt5
 from flask import Flask, request, jsonify
 import threading
+
+from flask import Flask, request, jsonify
+import threading
+
+# -------------------------------
+# Flask Webhook Setup
+# -------------------------------
+app = Flask(_name_)
+signals = []  # Store incoming signals
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    if not data:
+        return jsonify({"status": "error", "message": "No JSON received"}), 400
+
+    # Save the signal
+    signals.append(data)
+    print(f"New signal received: {data}")
+
+    # Parse key fields for your bot
+    symbol = data.get("symbol")
+    action = data.get("action")
+    price = data.get("price")
+    tp = data.get("tp")
+    sl = data.get("sl")
+    print(f"Signal parsed: Symbol={symbol} | Action={action} | Entry={price} | TP={tp} | SL={sl}")
+
+    # Optionally: add it to your bot execution queue if you have one
+    # bot_signal_queue.put(data)
+
+    return jsonify({"status": "ok"})
+
+# -------------------------------
+# Function to start Flask in a thread
+# -------------------------------
+def start_flask():
+    app.run(port=5000)
 # ===========================
 # Pip unit helper and TP/SL calculation
 # ===========================
@@ -639,6 +677,19 @@ def webhook():
 
 # ---------------- Main startup ----------------
 if __name__ == '__main__':
+    # 1️⃣ Start Flask webhook in a separate thread
+    flask_thread = threading.Thread(target=start_flask)
+    flask_thread.start()
+
+    # 2️⃣ Initialize MT5
+    init_mt5()  # your function to connect MT5
+
+    # 3️⃣ Start P/L loop in its own thread
+    pl_thread = threading.Thread(target=pl_loop)
+    pl_thread.start()
+
+    # 4️⃣ Start your precision bot
+    run_bot()
     try:
         # Your existing startup code
         startup_banner()
