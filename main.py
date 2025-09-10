@@ -18,20 +18,13 @@ from datetime import datetime
 # ===========================
 
 def get_pip_unit(pair: str) -> float:
-    """
-    Returns the correct pip unit based on the trading pair.
-    - JPY pairs use 0.01
-    - Gold (XAU/USD) uses 1.0
-    - Other forex pairs use 0.0001
-    """
     pair = pair.upper()
     if "JPY" in pair:
         return 0.01
     elif "XAU" in pair or "GOLD" in pair:
-        return 1.0
+        return 0.1  # ✅ Corrected for Gold
     else:
         return 0.0001
-
 
 # delayed import of heavy libs inside try to log errors cleanly
 try:
@@ -309,21 +302,21 @@ def train_heuristic():
 # TRADING: open/check/log
 # ===========================
 
-
 def open_trade(pair, signal, current_price, df=None):
     """
     Opens a trade with properly scaled TP and SL for all pairs
     Includes try/except to prevent runtime crashes
     """
-    try: 
-        # Pip unit & TP/SL calculation (pair & current_price are defined here)
-        pip_unit = get_pip_unit(pair)
-        tp1_price = current_price + (TP1 * pip_unit) if signal == 'BUY' else current_price - (TP1 * pip_unit)
-        tp2_price = current_price + ((TP1+TP2) * pip_unit) if signal == 'BUY' else current_price - ((TP1+TP2) * pip_unit)
-        tp3_price = current_price + ((TP1+TP2+TP3) * pip_unit) if signal == 'BUY' else current_price - ((TP1+TP2+TP3) * pip_unit)
-        sl_price  = current_price - (SL * pip_unit) if signal == 'BUY' else current_price + (SL * pip_unit)
+    try:
+        # Determine pip unit based on pair
+        if 'JPY' in pair:
+            pip_unit = 0.01
+        elif pair == 'GC=F' or 'XAU' in pair or 'GOLD' in pair:
+            pip_unit = 0.1
+        else:
+            pip_unit = 0.0001
 
-        # ATR-based TP/SL adjustments
+        # ATR-based TP/SL if df is provided
         atr = calculate_atr(df) if df is not None else None
         if atr is not None:
             tp1_val = atr
@@ -336,7 +329,6 @@ def open_trade(pair, signal, current_price, df=None):
             tp3_val = (TP1 + TP2 + TP3) * pip_unit
             sl_val = SL * pip_unit
 
-        # Save trade
         active_trades[pair] = {
             'Pair': pair,
             'Signal': signal,
@@ -352,7 +344,7 @@ def open_trade(pair, signal, current_price, df=None):
             'Entry_Time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
 
-        # Logging
+        # Log safely now that pair is defined
         log(f"Opened {pair} {signal} @ {current_price} mode={'TEST' if TEST_MODE else 'LIVE'}")
         print(f"\033[96m[TRADE OPENED] {PAIR_NAMES[pair]} {signal} @ {current_price:.5f}\033[0m")
 
@@ -360,26 +352,25 @@ def open_trade(pair, signal, current_price, df=None):
         log(f"open_trade error for {pair}: {e}")
 def compute_live_pnl(trade, current_price):
     """
-    Calculates live P/L in pips using the same pip_unit logic as TP/SL
+    Computes live P/L in pips for all pairs, including correct scaling for JPY and Gold.
     """
-    try:
-        # Determine pip unit
-        def get_pip_unit(pair: str) -> float:
-            pair = pair.upper()
-            if "JPY" in pair:
-                return 0.01
-            elif "XAU" in pair or "GOLD" in pair:
-                return 1.0
-            else:
-                return 0.0001
+    pair = trade['Pair'].upper()
 
-        pip_unit = get_pip_unit(trade['Pair'])
+    # Determine pip factor for P/L calculation
+    if 'JPY' in pair:
+        pip_factor = 100
+    elif pair == 'GC=F' or 'XAU' in pair or 'GOLD' in pair:
+        pip_factor = 10  # Gold pip scaling
+    else:
+        pip_factor = 10000  # Standard Forex pairs
 
-        # Calculate P/L in pips
-        if trade['Signal'] == 'BUY':
-            return (current_price - trade['Entry']) / pip_unit
-        else:
-            return (trade['Entry'] - current_price) / pip_unit
+    # Compute P/L based on trade direction
+    if trade['Signal'] == 'BUY':
+        pnl = (current_price - trade['Entry']) * pip_factor
+    else:  # SELL
+        pnl = (trade['Entry'] - current_price) * pip_factor
+
+    return round(pnl, 2)
 
     except Exception as e:
         log(f"compute_live_pnl error for {trade['Pair']}: {e}")
@@ -528,6 +519,7 @@ def display_dashboard():
 # ===========================
 # MAIN BOT LOOP
 # ===========================
+
 def run_bot():
     global TEST_MODE
     while True:
@@ -536,26 +528,28 @@ def run_bot():
             if price is None:
                 continue
 
-            # Test mode: open single trade per pair if not active
+            # One-cycle test: open only one trade per pair in test mode
             if TEST_MODE and pair not in active_trades:
-                open_trade(pair, 'BUY', price)  # log inside open_trade()
+                open_trade(pair, 'BUY', price)
             elif not TEST_MODE:
                 df = fetch_data(pair)
                 signal = generate_signal(df)
                 if signal and pair not in active_trades:
                     open_trade(pair, signal, price, df)
 
+            # Check active trades for TP/SL hits
             check_trades(pair, price)
 
+        # Display dashboard after all pairs processed
         display_dashboard()
 
-        # Disable test mode automatically if all test trades closed
+        # Auto-disable test mode when all test trades are closed
         if TEST_MODE and not active_trades:
             TEST_MODE = False
             print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
 
+        # Wait before next iteration
         time.sleep(SLEEP_INTERVAL)
-
 # ===========================
 # ENTRY POINT (with y/n startup prompt and safety)
 # ===========================
