@@ -27,6 +27,10 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Install dependencies
+        run: |
+          pip install yfinance pandas twelvedata pyinstaller
+
       - name: Build executable (console mode for debugging)
         run: |
           pyinstaller --onefile main.py
