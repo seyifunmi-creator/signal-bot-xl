@@ -653,7 +653,7 @@ def run_bot():
                 print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
                 log("Test mode completed, switching to live.")
 
-           Periodic retrain
+            # Periodic retrain
             if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
                 train_heuristic()
 
@@ -662,7 +662,7 @@ def run_bot():
             log(f"run_bot loop error: {e}")
             traceback.print_exc()
             time.sleep(5)
-
+            
 # ===========================
 # MT5 P/L monitor (prints MT5 positions P/L)
 # ===========================
