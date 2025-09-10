@@ -583,7 +583,8 @@ def process_external_signals():
         except Exception as e:
             log(f"process_external_signals error: {e}")
 
-MAIN BOT LOOP
+# ===========================
+# MAIN BOT LOOP
 # ===========================
 def run_bot():
     global TEST_MODE, last_trained
