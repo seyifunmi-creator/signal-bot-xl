@@ -827,7 +827,7 @@ def run_bot():
                             train_heuristic()
 
                         time.sleep(SLEEP_INTERVAL)
-                    except Exception as e:
+                        except Exception as e:
                         log(f"run_bot loop error: {e}")
                         traceback.print_exc()
                         time.sleep(5)
