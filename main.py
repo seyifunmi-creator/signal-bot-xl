@@ -12,14 +12,39 @@ import sys
 import traceback
 from datetime import datetime
 import threading
-
-import pandas as pd
 import MetaTrader5 as mt5
+import pandas as pd
+import csv
+import os
 from flask import Flask, request, jsonify
+import threading
+import logging
 
-# -------------------------------
-# Flask Webhook Setup (optional use)
-# -------------------------------
+# --- Logging setup ---
+logging.basicConfig(
+    filename="bot.log",
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
+# --- Trade Tracking Globals ---
+wins, losses, profit = 0, 0, 0
+trades = []
+REQUIRED_SUSTAINED_CANDLES = 3
+
+# --- Pair Settings (TP/SL per instrument) ---
+PAIR_SETTINGS = {
+    'EURUSD': {'TP1': 40, 'TP2': 80, 'TP3': 120, 'SL': 50},
+    'GBPUSD': {'TP1': 50, 'TP2': 100, 'TP3': 150, 'SL': 60},
+    'USDJPY': {'TP1': 30, 'TP2': 60, 'TP3': 90, 'SL': 40},
+    'USDCAD': {'TP1': 25, 'TP2': 50, 'TP3': 75, 'SL': 30},
+    'XAUUSD': {'TP1': 500, 'TP2': 1000, 'TP3': 1500, 'SL': 600},
+}
+DEFAULT_SETTINGS = {'TP1': 40, 'TP2': 80, 'TP3': 120, 'SL': 50}
+
+# --- Flask Webhook for External Signals ---
 app = Flask(__name__)
 signals = []  # Store incoming external signals
 
@@ -30,34 +55,187 @@ def webhook():
         return jsonify({"status": "error", "message": "No JSON received"}), 400
     signals.append(data)
     print(f"[WEBHOOK] New external signal received: {data}")
-    # We intentionally do NOT auto-override internal signals.
-    # External signals will be processed by process_external_signals() in run loop.
+    logger.info(f"[WEBHOOK] New external signal received: {data}")
     return jsonify({"status": "ok"})
 
 def start_flask():
-    # Run Flask in a separate thread; disable reloader to avoid double-thread issues
     app.run(port=5000, debug=False, use_reloader=False)
 
-# ===========================
-# CONFIGURATION (kept as in your code)
-# ===========================
-PAIRS = ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCAD=X', 'GC=F']
+# Run Flask in background thread
+threading.Thread(target=start_flask, daemon=True).start()
+
+# --- Pairs & Names ---
+PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'XAUUSD']
 PAIR_NAMES = {
-    'EURUSD=X': 'EUR/USD', 'GBPUSD=X': 'GBP/USD',
-    'USDJPY=X': 'USD/JPY', 'USDCAD=X': 'USD/CAD',
-    'GC=F': 'Gold/USD'
+    'EURUSD': 'EUR/USD', 'GBPUSD': 'GBP/USD',
+    'USDJPY': 'USD/JPY', 'USDCAD': 'USD/CAD',
+    'XAUUSD': 'Gold/USD'
 }
+
+# --- Trade history CSV setup ---
+HISTORY_FILE = "trade_history.csv"
+if not os.path.exists(HISTORY_FILE):
+    with open(HISTORY_FILE, mode="w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Pair", "Signal", "Entry", "Exit", "Target", "Result", "Profit/Loss"])
+
+# === MAIN CYCLE LOOP (run periodically in your scheduler) ===
+def run_cycle():
+    global wins, losses, profit, trades
+
+    # --- Process internal EMA signals ---
+    for pair in PAIRS:
+        name = PAIR_NAMES.get(pair, pair)
+
+        # 1. Fetch latest candles from MT5
+        rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
+        df = pd.DataFrame(rates)
+        df['EMA5'] = df['close'].ewm(span=5).mean()
+        df['EMA12'] = df['close'].ewm(span=12).mean()
+
+        # 2. Sustained confirmation check
+        signal = None
+        if all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES)):
+            signal = "BUY"
+        elif all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES)):
+            signal = "SELL"
+
+        # 3. Continue only if confirmed signal
+        if signal:
+            settings = PAIR_SETTINGS.get(pair, DEFAULT_SETTINGS)
+            tp1, tp2, tp3, sl = settings['TP1'], settings['TP2'], settings['TP3'], settings['SL']
+
+            entry_price = df['close'].iloc[-1]
+
+            if signal == "BUY":
+                tp1_price = entry_price + tp1
+                tp2_price = entry_price + tp2
+                tp3_price = entry_price + tp3
+                sl_price = entry_price - sl
+            else:  # SELL
+                tp1_price = entry_price - tp1
+                tp2_price = entry_price - tp2
+                tp3_price = entry_price - tp3
+                sl_price = entry_price + sl
+
+            trade = {
+                'pair': name,
+                'signal': signal,
+                'entry': entry_price,
+                'TP1': tp1_price,
+                'TP2': tp2_price,
+                'TP3': tp3_price,
+                'SL': sl_price,
+                'TP1_hit': False,
+                'TP2_hit': False,
+                'TP3_hit': False,
+                'SL_hit': False,
+            }
+            trades.append(trade)
+            msg = f"NEW {signal} trade on {name} | Entry {entry_price} | TP1 {tp1_price}, TP2 {tp2_price}, TP3 {tp3_price}, SL {sl_price}"
+            print(msg); logger.info(msg)
+
+    # --- Update trades with live price ---
+    closed_trades = []
+
+    for trade in trades:
+        symbol = trade['pair'].replace('/', '')  # MT5 symbol format
+        current_price = float(mt5.symbol_info_tick(symbol).last)
+
+        # BUY Trades
+        if trade['signal'] == "BUY":
+            if not trade['TP1_hit'] and current_price >= trade['TP1']:
+                trade['TP1_hit'] = True; wins += 1; profit += (trade['TP1'] - trade['entry'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP1'], "TP1", "WIN", trade['TP1'] - trade['entry']])
+                print(f"{trade['pair']} hit TP1✅"); logger.info(f"{trade['pair']} hit TP1✅")
+            if not trade['TP2_hit'] and current_price >= trade['TP2']:
+                trade['TP2_hit'] = True; wins += 1; profit += (trade['TP2'] - trade['entry'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP2'], "TP2", "WIN", trade['TP2'] - trade['entry']])
+                print(f"{trade['pair']} hit TP2✅"); logger.info(f"{trade['pair']} hit TP2✅")
+            if not trade['TP3_hit'] and current_price >= trade['TP3']:
+                trade['TP3_hit'] = True; wins += 1; profit += (trade['TP3'] - trade['entry'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP3'], "TP3", "WIN", trade['TP3'] - trade['entry']])
+                print(f"{trade['pair']} hit TP3✅"); logger.info(f"{trade['pair']} hit TP3✅")
+                closed_trades.append(trade)
+            if not trade['SL_hit'] and current_price <= trade['SL']:
+                trade['SL_hit'] = True; losses += 1; profit -= (trade['entry'] - trade['SL'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['SL'], "SL", "LOSS", -(trade['entry'] - trade['SL'])])
+                print(f"{trade['pair']} SL❌"); logger.info(f"{trade['pair']} SL❌")
+                closed_trades.append(trade)
+
+        # SELL Trades
+        elif trade['signal'] == "SELL":
+            if not trade['TP1_hit'] and current_price <= trade['TP1']:
+                trade['TP1_hit'] = True; wins += 1; profit += (trade['entry'] - trade['TP1'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP1'], "TP1", "WIN", trade['entry'] - trade['TP1']])
+                print(f"{trade['pair']} hit TP1✅"); logger.info(f"{trade['pair']} hit TP1✅")
+            if not trade['TP2_hit'] and current_price <= trade['TP2']:
+                trade['TP2_hit'] = True; wins += 1; profit += (trade['entry'] - trade['TP2'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP2'], "TP2", "WIN", trade['entry'] - trade['TP2']])
+                print(f"{trade['pair']} hit TP2✅"); logger.info(f"{trade['pair']} hit TP2✅")
+            if not trade['TP3_hit'] and current_price <= trade['TP3']:
+                trade['TP3_hit'] = True; wins += 1; profit += (trade['entry'] - trade['TP3'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['TP3'], "TP3", "WIN", trade['entry'] - trade['TP3']])
+                print(f"{trade['pair']} hit TP3✅"); logger.info(f"{trade['pair']} hit TP3✅")
+                closed_trades.append(trade)
+            if not trade['SL_hit'] and current_price >= trade['SL']:
+                trade['SL_hit'] = True; losses += 1; profit -= (trade['SL'] - trade['entry'])
+                with open(HISTORY_FILE, "a", newline="") as f:
+                    csv.writer(f).writerow([trade['pair'], trade['signal'], trade['entry'], trade['SL'], "SL", "LOSS", -(trade['SL'] - trade['entry'])])
+                print(f"{trade['pair']} SL❌"); logger.info(f"{trade['pair']} SL❌")
+                closed_trades.append(trade)
+
+        # Print + log trade status
+        tp_status = []
+        if trade['TP1_hit']: tp_status.append("TP1✅")
+        if trade['TP2_hit']: tp_status.append("TP2✅")
+        if trade['TP3_hit']: tp_status.append("TP3✅")
+        if trade['SL_hit']:  tp_status.append("SL❌")
+
+        status_msg = (f"{trade['pair']} {trade['signal']} | Entry {trade['entry']} | "
+                      f"TPs {trade['TP1']}/{trade['TP2']}/{trade['TP3']} | SL {trade['SL']} | "
+                      f"Status: {' '.join(tp_status) if tp_status else 'Active'}")
+        print(status_msg); logger.info(status_msg)
+
+    # --- Remove closed trades ---
+    for ct in closed_trades:
+        trades.remove(ct)
+
+    # --- Cycle summary ---
+    total_trades = len(trades)
+    accuracy = (wins / total_trades * 100) if total_trades > 0 else 0
+    summary_msg = f"\nCycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}\n"
+    print(summary_msg); logger.info(summary_msg)
+
+      
+# ------------------------
+# After all pairs in this cycle
+# ------------------------
+if total_trades > 0:
+    accuracy = (wins / total_trades) * 100
+else:
+    accuracy = 0
+
+print(f"\nCycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}\n")
 
 # default (overridden by startup prompt)
 TEST_MODE = False
 ONE_CYCLE_TEST = True
 
-# TP/SL config (pips)
-TP1 = 40
-TP2 = 40
-TP3 = 40
-SL = 50
+pair = 'EURUSD=X'  # this should be the pair currently being traded
 
+# Use pair-specific settings, fallback to default if missing
+DEFAULT_SETTINGS = {'TP1': 40, 'TP2': 40, 'TP3': 40, 'SL': 50}
+settings = PAIR_SETTINGS.get(pair, DEFAULT_SETTINGS)
+
+TP1, TP2, TP3, SL = settings['TP1'], settings['TP2'], settings['TP3'], settings['SL']
 # runtime/config
 SLEEP_INTERVAL = 60  # seconds between loop cycles
 CSV_FILE = "trades_log.csv"
@@ -518,6 +696,16 @@ def display_dashboard():
                 if trade['TP1_hit']: tp_status.append("TP1✅")
                 if trade['TP2_hit']: tp_status.append("TP2✅")
                 if trade['TP3_hit']: tp_status.append("TP3✅")
+                if trade['SL_hit']:  tp_status.append("SL❌")   # 👈 new line
+
+                total_trades += 1
+
+                if hit_tp1 or hit_tp2 or hit_tp3:
+                    wins += 1
+                    profit += actual_profit   # replace with how you calculate P/L
+                elif hit_sl:
+                    losses += 1
+                    profit -= actual_loss     # replace with how you calculate P/L
                 status_str = ", ".join(tp_status) if tp_status else "No TP hit"
                 # Print entry with 5 decimals for FX, 2 for Gold
                 if trade['Pair'] == 'GC=F':
