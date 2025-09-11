@@ -797,7 +797,7 @@ def run_bot():
                     signal = generate_signal(df)
                     # Apply a small loosened acceptance filter using trained_stats (improves precision but not overly strict)
                     accept_signal = False
-                    if signal:
+                if signal:
                     # Pair-specific SL and TP rules
                     gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
 
