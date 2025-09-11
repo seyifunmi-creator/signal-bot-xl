@@ -771,8 +771,11 @@ if not os.path.exists(TRADE_HISTORY_FILE):
 def run_bot():
     global total_trades, wins, losses, profit, last_trained
 
-    initial_test_opened = set()
     gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+
+    # --- PATCH: Clear active trades in test mode to ensure all pairs show preview ---
+    if TEST_MODE:
+        active_trades.clear()
 
     while True:
         try:
@@ -841,21 +844,16 @@ def run_bot():
                 log(f"{color}[PREVIEW]{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl} {near_tp_sl}")
 
                 # --- Open trade if allowed ---
-                if pair not in active_trades:
-                    mode = 'test' if TEST_MODE else 'live'
+                mode = 'test' if TEST_MODE else 'live'
+                if TEST_MODE or pair not in active_trades:
                     open_trade(pair, signal, price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl, mode=mode)
                     log_type = "[TEST]" if TEST_MODE else "[TRADE OPENED]"
                     log(f"{color}{log_type}{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl}")
-                    if TEST_MODE:
-                        initial_test_opened.add(pair)
 
                 # --- Add to dashboard snapshot ---
-                if pair in active_trades:
-                    trade = active_trades[pair]
-                    if trade['Signal'] == 'BUY':
-                        pnl = price - trade['Entry']
-                    else:
-                        pnl = trade['Entry'] - price
+                trade = active_trades.get(pair)
+                if trade:
+                    pnl = price - trade['Entry'] if trade['Signal'] == 'BUY' else trade['Entry'] - price
                     open_trades_snapshot.append({
                         'pair': pair,
                         'signal': trade['Signal'],
@@ -895,7 +893,7 @@ def run_bot():
                         closed_trades.append({'pair': trade['Pair'], 'result': 'LOSS', 'pnl': trade['Entry'] - price})
                         del active_trades[trade['Pair']]
 
-            # --- Process closed trades ---
+            # --- Process closed trades and log to CSV ---
             for trade in closed_trades:
                 total_trades += 1
                 if trade['result'] == 'WIN':
@@ -905,7 +903,6 @@ def run_bot():
                 profit += trade['pnl']
                 logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.5f}")
 
-                # --- Log to CSV ---
                 with open(TRADE_HISTORY_FILE, mode='a', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow([
