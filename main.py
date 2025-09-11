@@ -749,34 +749,6 @@ def display_dashboard():
         log(f"display_dashboard error: {e}")
 
 # ===========================
-# PROCESS EXTERNAL SIGNALS (optional use)
-# ===========================
-def process_external_signals():
-    """
-    Process any signals collected by webhook. External signals become additional
-    opportunities to open trades (they do not disable internal generation).
-    """
-    while signals:
-        data = signals.pop(0)
-        try:
-            symbol = data.get('symbol')
-            map_back = {'EURUSD':'EURUSD=X','GBPUSD':'GBPUSD=X','USDJPY':'USDJPY=X','USDCAD':'USDCAD=X','XAUUSD':'GC=F','GOLD':'GC=F'}
-            if symbol in map_back:
-                pair = map_back[symbol]
-            else:
-                pair = symbol
-            action = data.get('action') or data.get('side') or data.get('signal')
-            if isinstance(action, str):
-                action = action.upper()
-            price = data.get('price') or get_live_price(pair)
-            # Only open if no active trade for that pair and price available
-            if pair not in active_trades and price is not None and action in ('BUY','SELL'):
-                open_trade(pair, action, price, df=fetch_data(pair), mode='live')
-                log(f"[EXTERNAL] Opened {pair} {action} @ {price}")
-        except Exception as e:
-            log(f"process_external_signals error: {e}")
-
-# ===========================
 # MAIN BOT LOOP
 # ===========================
 def run_bot():
@@ -785,9 +757,6 @@ def run_bot():
     train_heuristic()
     while True:
         try:
-            # Process any external TradingView signals first (they don't block internal generation)
-            process_external_signals()
-
             # For each pair: internal signal generation, trade checks
             for pair in PAIRS:
                 # Get historical data and live price
