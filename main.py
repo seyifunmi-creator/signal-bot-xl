@@ -16,7 +16,6 @@ import MetaTrader5 as mt5
 import pandas as pd
 import csv
 import os
-from flask import Flask, request, jsonify
 import threading
 import logging
 
@@ -43,26 +42,6 @@ PAIR_SETTINGS = {
     'XAUUSD': {'TP1': 500, 'TP2': 1000, 'TP3': 1500, 'SL': 600},
 }
 DEFAULT_SETTINGS = {'TP1': 40, 'TP2': 80, 'TP3': 120, 'SL': 50}
-
-# --- Flask Webhook for External Signals ---
-app = Flask(__name__)
-signals = []  # Store incoming external signals
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-    if not data:
-        return jsonify({"status": "error", "message": "No JSON received"}), 400
-    signals.append(data)
-    print(f"[WEBHOOK] New external signal received: {data}")
-    logger.info(f"[WEBHOOK] New external signal received: {data}")
-    return jsonify({"status": "ok"})
-
-def start_flask():
-    app.run(port=5000, debug=False, use_reloader=False)
-
-# Run Flask in background thread
-threading.Thread(target=start_flask, daemon=True).start()
 
 # --- Pairs & Names ---
 PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'XAUUSD']
@@ -939,8 +918,6 @@ if __name__ == '__main__':
 
         print(f"\033[94m[INFO] Precision Bot V3 starting. Pairs: {PAIRS} | Test Mode: {TEST_MODE} | One-cycle test: {ONE_CYCLE_TEST}\033[0m")
 
-        # Start Flask webhook thread
-        threading.Thread(target=start_flask, daemon=True).start()
 
         # Initialize MT5 connection and start P/L monitor thread
         init_mt5_once()
