@@ -755,21 +755,22 @@ import time
 import traceback
 import pandas as pd
 
-# ANSI color codes
+# ANSI colors for console
 GREEN = "\033[92m"
 RED = "\033[91m"
 YELLOW = "\033[93m"
 MAGENTA = "\033[95m"
 RESET = "\033[0m"
 
-# --- GLOBAL SETTINGS ---
+# --- SETTINGS ---
 SLEEP_INTERVAL = 5
 PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'XAUUSD']
 PAIR_NAMES = {}  # optional mapping
 REQUIRED_SUSTAINED_CANDLES = 3
 gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+UPDATE_INTERVAL = 60  # seconds
 
-# --- Tracking stats ---
+# --- Stats tracking ---
 active_trades = {}
 total_trades = 0
 wins = 0
@@ -784,16 +785,16 @@ if not os.path.exists(TRADE_HISTORY_FILE):
         writer = csv.writer(f)
         writer.writerow(["Timestamp", "Pair", "Signal", "Entry", "Exit", "Result", "P/L"])
 
-# --- Simple log function ---
+# --- Log function ---
 def log(message):
     print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {message}")
 
-# --- INTERACTIVE TEST/LIVE CHOICE ---
+# --- Test/Live selection ---
 choice = input("Start in test mode? (y/n): ").strip().lower()
 TEST_MODE = choice == 'y'
 ONE_CYCLE_TEST = False  # always off
 
-# --- Immediate preview for all pairs ---
+# --- Immediate preview of all pairs ---
 active_trades.clear()
 log(f"[INFO] Starting in {'TEST' if TEST_MODE else 'LIVE'} MODE | One-cycle test: {ONE_CYCLE_TEST}")
 log("[INFO] PREVIEWS FOR ALL PAIRS")
@@ -805,11 +806,11 @@ for pair in PAIRS:
     if tick is None or df.empty:
         continue
 
-    # --- Calculate EMAs ---
+    # --- EMAs ---
     df['EMA5'] = df['close'].ewm(span=5).mean()
     df['EMA12'] = df['close'].ewm(span=12).mean()
 
-    # --- Calculate RSI ---
+    # --- RSI ---
     delta = df['close'].diff()
     gain = delta.where(delta > 0, 0)
     loss = -delta.where(delta < 0, 0)
@@ -818,18 +819,19 @@ for pair in PAIRS:
     rs = avg_gain / avg_loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # --- Default preview price ---
+    # --- Preview price and TP/SL ---
     price = tick.ask
     if pair in gold_pairs:
-        tp1, tp2, tp3, sl = price+0.0050, price+0.0100, price+0.0150, price-0.0070
+        tp1, tp2, tp3, sl = price+50, price+100, price+150, price-70
     else:
         tp1, tp2, tp3, sl = price+0.0040, price+0.0080, price+0.0120, price-0.0050
 
     log(f"[PREVIEW] {pair} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl}")
 
-# --- RUN BOT FUNCTION ---
+# --- Run Bot Function ---
 def run_bot():
     global total_trades, wins, losses, profit, last_trained
+    last_update_time = {}
 
     while True:
         try:
@@ -845,12 +847,15 @@ def run_bot():
                     log(f"[WARN] No historical data for {pair}. Skipping.")
                     continue
 
-                # --- Calculate EMAs ---
-                df['EMA5'] = df['close'].ewm(span=5).mean()
-                df['EMA12'] = df['close'].ewm(span=12).mean()
+                # --- Keep OHLC columns for ATR ---
+                df.rename(columns={'open':'Open','high':'High','low':'Low','close':'Close'}, inplace=True)
 
-                # --- Calculate RSI ---
-                delta = df['close'].diff()
+                # --- EMAs ---
+                df['EMA5'] = df['Close'].ewm(span=5).mean()
+                df['EMA12'] = df['Close'].ewm(span=12).mean()
+
+                # --- RSI ---
+                delta = df['Close'].diff()
                 gain = delta.where(delta > 0, 0)
                 loss = -delta.where(delta < 0, 0)
                 avg_gain = gain.rolling(14).mean()
@@ -864,47 +869,35 @@ def run_bot():
                     log(f"[WARN] No signal for {pair}. Skipping.")
                     continue
 
-                price = tick.ask if signal == 'BUY' else tick.bid
-                if price <= 0.0:
-                    log(f"[WARN] Invalid price {price} for {pair}. Skipping.")
-                    continue
+                price = tick.ask if signal=='BUY' else tick.bid
 
-                # --- Calculate TP/SL ---
+                # --- TP/SL calculation ---
                 if signal == "BUY":
                     if pair in gold_pairs:
-                        tp1, tp2, tp3, sl = price+0.0050, price+0.0100, price+0.0150, price-0.0070
+                        tp1, tp2, tp3, sl = price+50, price+100, price+150, price-70
                     else:
                         tp1, tp2, tp3, sl = price+0.0040, price+0.0080, price+0.0120, price-0.0050
                 else:
                     if pair in gold_pairs:
-                        tp1, tp2, tp3, sl = price-0.0050, price-0.0100, price-0.0150, price+0.0070
+                        tp1, tp2, tp3, sl = price-50, price-100, price-150, price+70
                     else:
                         tp1, tp2, tp3, sl = price-0.0040, price-0.0080, price-0.0120, price+0.0050
 
-                # --- Preview with risk check ---
-                buffer = 0.0002 if pair not in gold_pairs else 0.5
-                near_tp_sl = ""
-                if signal == 'BUY':
-                    color = GREEN
-                    if price >= tp1 - buffer:
-                        near_tp_sl = f"{YELLOW}⚡ Near TP1!{RESET}"
-                    elif price <= sl + buffer:
-                        near_tp_sl = f"{MAGENTA}⚠ Near SL!{RESET}"
-                else:
-                    color = RED
-                    if price <= tp1 + buffer:
-                        near_tp_sl = f"{YELLOW}⚡ Near TP1!{RESET}"
-                    elif price >= sl - buffer:
-                        near_tp_sl = f"{MAGENTA}⚠ Near SL!{RESET}"
-
-                log(f"{color}[PREVIEW]{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl} {near_tp_sl}")
-
-                # --- Open trade ---
+                # --- Open trade (test/live) ---
                 mode = 'test' if TEST_MODE else 'live'
                 if TEST_MODE or pair not in active_trades:
                     open_trade(pair, signal, price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl, mode=mode)
                     log_type = "[TEST]" if TEST_MODE else "[TRADE OPENED]"
-                    log(f"{color}{log_type}{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl}")
+                    log(f"{GREEN if signal=='BUY' else RED}{log_type}{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl}")
+
+                # --- Periodic update for P/L and trade status ---
+                now = time.time()
+                if pair not in last_update_time or now - last_update_time[pair] >= UPDATE_INTERVAL:
+                    entry_price = active_trades.get(pair, {}).get('Entry', price)
+                    signal_type = active_trades.get(pair, {}).get('Signal', signal)
+                    unrealized = (tick.ask - entry_price) if signal_type=='BUY' else (entry_price - tick.bid)
+                    log(f"[UPDATE] {pair} | Signal: {signal_type} | Entry: {entry_price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl} | P/L: {unrealized:.2f}")
+                    last_update_time[pair] = now
 
             # --- Closed trades, dashboard, CSV logging, retrain heuristic ---
             # (existing logic unchanged)
@@ -916,7 +909,7 @@ def run_bot():
             traceback.print_exc()
             time.sleep(5)
 
-# --- START BOT ---
+# --- Start Bot ---
 run_bot()
 # ===========================
 # MT5 P/L monitor (prints MT5 positions P/L)
