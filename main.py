@@ -137,11 +137,11 @@ def run_cycle():
 
     # --- Update trades with live price ---
     closed_trades = []
-# after all pairs processed in this cycle
-logger.info(
-    f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
-    f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
-)
+    # after all pairs processed in this cycle
+    logger.info(
+       f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
+       f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
+    )
 
     for trade in trades:
         symbol = trade['pair'].replace('/', '')  # MT5 symbol format
