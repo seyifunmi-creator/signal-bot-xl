@@ -13,6 +13,10 @@ import traceback
 from datetime import datetime
 import threading
 import MetaTrader5 as mt5
+
+if not mt5.initialize():
+    print("MT5 initialization failed")
+    mt5.shutdown()
 import pandas as pd
 import csv
 import os
@@ -71,10 +75,17 @@ def run_cycle():
         name = PAIR_NAMES.get(pair, pair)
         # --- Fecth latest price from MT5---
         tick = mt5.symbol_info_tick(pair)
-        if tick:
-            price = tick.last
-        else:
-            continue  # skip this pair if no tick data
+        if tick is None:
+            log(f"[WARN] No tick data for {pair}. Skipping this pair.")
+            continue
+
+        # Use the 'ask' price for BUY trades and 'bid' for SELL trades
+        price = tick.ask if signal == "BUY" else tick.bid
+
+        # Safety check
+        if price <= 0.0:
+            log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
+            continue
         # --- Fetch latest candles from MT5 ---
         rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
         df = pd.DataFrame(rates)
@@ -752,7 +763,13 @@ def run_bot():
                 if tick is None:
                     log(f"[WARN] No tick data for {pair}. Skipping this pair.")
                     continue  # skip this iteration if no tick data
-                price = tick.last  # safe to use now
+                # Use 'ask' for BUY, 'bid' for SELL trades
+                price = tick.ask if signal == "BUY" else tick.bid
+
+                # Safety check: skip invalid prices
+                if price <= 0.0:
+                    log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
+                    continue
                 # Optional debug: show the fetched price
                 print(f"[DEBUG] {pair} price: {price}")
                 # --- Safety check ---
