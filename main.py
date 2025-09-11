@@ -763,7 +763,10 @@ def run_bot():
 
                 # --- LIVE MODE ---
                 else:
-                    df = get_pair_dataframe(pair)  # your function to fetch MT5 candles
+                    rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
+                    df = pd.DataFrame(rates)
+                    df['EMA5'] = df['close'].ewm(span=5).mean()
+                    df['EMA12'] = df['close'].ewm(span=12).mean()     
                     signal = generate_signal(df)
 
                     # Acceptance filter using trained stats
@@ -802,7 +805,26 @@ def run_bot():
                         open_trade(pair, signal, entry_price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
 
                 # --- Update closed trades ---
-                closed_trades = update_closed_trades(pair)
+                closed_trades = []
+                for trade in list(active_trades.values()):
+                    if trade['Pair'] != pair:
+                        continue
+
+                    # Check TP/SL hits
+                    if trade['Signal'] == 'BUY':
+                        if current_price >= trade['TP1'] and not trade['TP1_hit']:
+                            trade['TP1_hit'] = True
+                        if current_price <= trade['SL']:
+                           trade['SL_hit'] = True
+                           closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': current_price - trade['Entry']})
+                           del active_trades[pair]
+                   else:  # SELL
+                       if current_price <= trade['TP1'] and not trade['TP1_hit']:
+                           trade['TP1_hit'] = True
+                       if current_price >= trade['SL']:
+                           trade['SL_hit'] = True
+                           closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': trade['Entry'] - current_price})
+                           del active_trades[pair]
                 for trade in closed_trades:
                     total_trades += 1
                     if trade['result'] == 'WIN':
