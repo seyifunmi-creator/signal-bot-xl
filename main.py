@@ -749,7 +749,7 @@ def display_dashboard():
 # MAIN BOT LOOP
 # ===========================
 def run_bot():
-    global total_trades, wins, losses, profit
+    global total_trades, wins, losses, profit, last_trained
 
     # Track which pairs have been opened in test mode
     initial_test_opened = set()
@@ -758,33 +758,40 @@ def run_bot():
         try:
             for pair in PAIRS:
                 name = PAIR_NAMES.get(pair, pair)
-                # --- Fetch current price for the pair ---
+
+                # --- Fetch current price ---
                 tick = mt5.symbol_info_tick(pair)
                 if tick is None:
-                    log(f"[WARN] No tick data for {pair}. Skipping this pair.")
+                    log(f"[WARN] No tick data for {pair}. Skipping.")
                     continue
-                # --- Fetch historical data for signals ---
+
+                # --- Fetch historical data ---
                 rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
                 df = pd.DataFrame(rates)
+                if df.empty:
+                    log(f"[WARN] No historical data for {pair}. Skipping.")
+                    continue
+
+                # --- Calculate EMA once ---
                 df['EMA5'] = df['close'].ewm(span=5).mean()
                 df['EMA12'] = df['close'].ewm(span=12).mean()
-                # --- Determine signal BEFORE using it ---
+
+                # --- Determine signal ---
                 if TEST_MODE and pair not in active_trades:
-                    signal = 'BUY'  # test mode default
+                    signal = 'BUY'  # default for test
                 else:
-                    # replace this with your actual internal signal generation
-                    signal = generate_signal(df)  # df must be defined first
+                    signal = generate_signal(df)
 
                 if signal is None:
-                    log(f"[WARN] No signal generated for {pair}. Skipping.")
+                    log(f"[WARN] No signal for {pair}. Skipping.")
                     continue
 
-                # --- Now it’s safe to assign price ---
-                price = tick.ask if signal == "BUY" else tick.bid
+                # --- Determine entry price ---
+                price = tick.ask if signal == 'BUY' else tick.bid
                 if price <= 0.0:
-                    log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
+                    log(f"[WARN] Invalid price {price} for {pair}. Skipping.")
                     continue
-                signal = None
+
                 tp1 = tp2 = tp3 = sl = None
 
                 # --- TEST MODE ---
@@ -794,32 +801,22 @@ def run_bot():
                     log(f"[TEST] Opened test trade for {pair} @ {price}")
 
                 # --- LIVE MODE ---
-                else:
-                    rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
-                    df = pd.DataFrame(rates)
-                    df['EMA5'] = df['close'].ewm(span=5).mean()
-                    df['EMA12'] = df['close'].ewm(span=12).mean()     
-                    signal = generate_signal(df)
-
+                elif not TEST_MODE and pair not in active_trades:
                     # Acceptance filter using trained stats
-                    accept_signal = False
+                    accept_signal = True
                     stats = trained_stats.get(pair)
                     if stats:
                         base_prob = stats.get('p_tp3', 0.15)
-                        if base_prob >= 0.10:
-                            accept_signal = True
-                        else:
-                            # Allow sustained EMA condition to override
+                        if base_prob < 0.10:
+                            # Allow sustained EMA override
                             if signal == 'BUY':
-                                sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
+                                accept_signal = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)]
+                                                    for i in range(REQUIRED_SUSTAINED_CANDLES))
                             else:
-                                sustained = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
-                            accept_signal = sustained
-                    else:
-                        accept_signal = True  # no stats, accept signal
+                                accept_signal = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)]
+                                                    for i in range(REQUIRED_SUSTAINED_CANDLES))
 
-                    # Only open trade if accepted and no active trade
-                    if accept_signal and signal and pair not in active_trades:
+                    if accept_signal:
                         entry_price = price
                         gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
 
@@ -845,17 +842,22 @@ def run_bot():
                     if trade['Signal'] == 'BUY':
                         if price >= trade['TP1'] and not trade['TP1_hit']:
                             trade['TP1_hit'] = True
-                        if price <= trade['SL']:
+                            closed_trades.append({'pair': pair, 'result': 'WIN', 'pnl': trade['TP1'] - trade['Entry']})
+                            del active_trades[pair]
+                        elif price <= trade['SL']:
                             trade['SL_hit'] = True
                             closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': price - trade['Entry']})
                             del active_trades[pair]
                     else:  # SELL
                         if price <= trade['TP1'] and not trade['TP1_hit']:
                             trade['TP1_hit'] = True
-                        if price >= trade['SL']:
+                            closed_trades.append({'pair': pair, 'result': 'WIN', 'pnl': trade['Entry'] - trade['TP1']})
+                            del active_trades[pair]
+                        elif price >= trade['SL']:
                             trade['SL_hit'] = True
                             closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': trade['Entry'] - price})
                             del active_trades[pair]
+
                 for trade in closed_trades:
                     total_trades += 1
                     if trade['result'] == 'WIN':
@@ -865,7 +867,7 @@ def run_bot():
                     profit += trade['pnl']
                     logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
 
-            # Retrain heuristic if needed
+            # --- Retrain heuristic if needed ---
             if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
                 train_heuristic()
 
