@@ -747,7 +747,11 @@ def run_bot():
         try:
             for pair in PAIRS:
                 name = PAIR_NAMES.get(pair, pair)
-                price = get_current_price(pair)  # current market price
+                tick = mt5.symbol_info_tick(pair)
+                if tick:
+                    price = tick.last
+                else:
+                continue  # skip this pair if no tick data
                 signal = None
                 tp1 = tp2 = tp3 = sl = None
 
