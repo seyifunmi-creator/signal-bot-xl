@@ -69,7 +69,12 @@ def run_cycle():
 
     for pair in PAIRS:
         name = PAIR_NAMES.get(pair, pair)
-
+        # --- Fecth latest price from MT5---
+        tick = mt5.symbol_info_tick(pair)
+        if tick:
+            price = tick.last
+        else:
+            continue  # skip this pair if no tick data
         # --- Fetch latest candles from MT5 ---
         rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
         df = pd.DataFrame(rates)
