@@ -745,46 +745,46 @@ def run_bot():
                tp1 = tp2 = tp3 = sl = None  # initialize TP/SL
 
                if TEST_MODE and pair not in active_trades:
-               # Keep your original behavior: open BUY for test cycles
-               open_trade(pair, 'BUY', price, df=df, mode='test')
-               initial_test_opened.add(pair)
-               log(f"[TEST] Opened test trade for {pair} @ {price}")
+                   # Keep your original behavior: open BUY for test cycles
+                   open_trade(pair, 'BUY', price, df=df, mode='test')
+                   initial_test_opened.add(pair)
+                   log(f"[TEST] Opened test trade for {pair} @ {price}")
 
-          else:  # not TEST_MODE
-              # Internal signal generation using EMA/RSI
-              signal = generate_signal(df)
+               else:  # not TEST_MODE
+                   # Internal signal generation using EMA/RSI
+                   signal = generate_signal(df)
 
-              # Only apply TP/SL rules if a signal exists
-              if signal:
-                  gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
-                  entry_price = price  # Use current price as entry
+                   # Only apply TP/SL rules if a signal exists
+                   if signal:
+                        gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+                        entry_price = price  # Use current price as entry
 
-                  if signal == "BUY":
-                      if pair in gold_pairs:
-                          tp1 = entry_price + 0.0050
-                          tp2 = entry_price + 0.0100
-                          tp3 = entry_price + 0.0150
-                          sl  = entry_price - 0.0070
-                      else:
-                          tp1 = entry_price + 0.0040
-                          tp2 = entry_price + 0.0080
-                          tp3 = entry_price + 0.0120
-                          sl  = entry_price - 0.0050
-                  else:  # SELL
-                      if pair in gold_pairs:
-                          tp1 = entry_price - 0.0050
-                          tp2 = entry_price - 0.0100
-                          tp3 = entry_price - 0.0150
-                          sl  = entry_price + 0.0070
-                      else:
-                          tp1 = entry_price - 0.0040
-                          tp2 = entry_price - 0.0080
-                          tp3 = entry_price - 0.0120
-                          sl  = entry_price + 0.0050
+                        if signal == "BUY":
+                            if pair in gold_pairs:
+                                tp1 = entry_price + 0.0050
+                                tp2 = entry_price + 0.0100
+                                tp3 = entry_price + 0.0150
+                                sl  = entry_price - 0.0070
+                            else:
+                                tp1 = entry_price + 0.0040
+                                tp2 = entry_price + 0.0080
+                                tp3 = entry_price + 0.0120
+                                sl  = entry_price - 0.0050
+                        else:  # SELL
+                            if pair in gold_pairs:
+                                tp1 = entry_price - 0.0050
+                                tp2 = entry_price - 0.0100
+                                tp3 = entry_price - 0.0150
+                                sl  = entry_price + 0.0070
+                            else:
+                                tp1 = entry_price - 0.0040
+                                tp2 = entry_price - 0.0080
+                                tp3 = entry_price - 0.0120
+                                sl  = entry_price + 0.0050
 
-                  # Open the trade
-                  open_trade(pair, signal, entry_price, df=df,
-                             tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
+                        # Open the trade
+                        open_trade(pair, signal, entry_price, df=df,
+                                   tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
                           stats = trained_stats.get(pair)
                           if not stats:
                               # no trained stats: accept signal (keeps signals frequent)
