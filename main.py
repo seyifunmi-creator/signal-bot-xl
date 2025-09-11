@@ -763,7 +763,11 @@ def run_bot():
                 if tick is None:
                     log(f"[WARN] No tick data for {pair}. Skipping this pair.")
                     continue
-
+                # --- Fetch historical data for signals ---
+                rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
+                df = pd.DataFrame(rates)
+                df['EMA5'] = df['close'].ewm(span=5).mean()
+                df['EMA12'] = df['close'].ewm(span=12).mean()
                 # --- Determine signal BEFORE using it ---
                 if TEST_MODE and pair not in active_trades:
                     signal = 'BUY'  # test mode default
