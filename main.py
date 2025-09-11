@@ -818,7 +818,7 @@ def run_bot():
                            trade['SL_hit'] = True
                            closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': current_price - trade['Entry']})
                            del active_trades[pair]
-                   else:  # SELL
+                    else: # SELL
                        if current_price <= trade['TP1'] and not trade['TP1_hit']:
                            trade['TP1_hit'] = True
                        if current_price >= trade['SL']:
