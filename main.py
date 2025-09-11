@@ -748,12 +748,25 @@ def display_dashboard():
 # ===========================
 # MAIN BOT LOOP
 # ===========================
+import os
+import csv
+from datetime import datetime
+import time
+import traceback
+
 # ANSI color codes
 GREEN = "\033[92m"
 RED = "\033[91m"
 YELLOW = "\033[93m"
 MAGENTA = "\033[95m"
 RESET = "\033[0m"
+
+# --- Trade history file ---
+TRADE_HISTORY_FILE = "trade_history.csv"
+if not os.path.exists(TRADE_HISTORY_FILE):
+    with open(TRADE_HISTORY_FILE, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Timestamp", "Pair", "Signal", "Entry", "Exit", "Result", "P/L"])
 
 def run_bot():
     global total_trades, wins, losses, profit, last_trained
@@ -839,7 +852,6 @@ def run_bot():
                 # --- Add to dashboard snapshot ---
                 if pair in active_trades:
                     trade = active_trades[pair]
-                    # compute P/L
                     if trade['Signal'] == 'BUY':
                         pnl = price - trade['Entry']
                     else:
@@ -883,6 +895,7 @@ def run_bot():
                         closed_trades.append({'pair': trade['Pair'], 'result': 'LOSS', 'pnl': trade['Entry'] - price})
                         del active_trades[trade['Pair']]
 
+            # --- Process closed trades ---
             for trade in closed_trades:
                 total_trades += 1
                 if trade['result'] == 'WIN':
@@ -890,9 +903,22 @@ def run_bot():
                 else:
                     losses += 1
                 profit += trade['pnl']
-                logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
+                logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.5f}")
 
-            # --- Dashboard summary with P/L color ---
+                # --- Log to CSV ---
+                with open(TRADE_HISTORY_FILE, mode='a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        trade['pair'],
+                        trade.get('Signal', 'N/A'),
+                        trade.get('Entry', 'N/A'),
+                        trade.get('TP1', 'N/A') if trade['result'] == 'WIN' else trade.get('SL', 'N/A'),
+                        trade['result'],
+                        round(trade['pnl'], 5)
+                    ])
+
+            # --- Dashboard summary ---
             if open_trades_snapshot:
                 log("----- OPEN TRADES DASHBOARD -----")
                 for t in open_trades_snapshot:
@@ -900,7 +926,7 @@ def run_bot():
                     pnl_color = GREEN if t['pnl'] >= 0 else RED
                     near_tp_sl = ""
                     if t['signal'] == 'BUY':
-                        if t['current_price'] >= t['entry'] + 0.002:  # simple buffer
+                        if t['current_price'] >= t['entry'] + 0.002:
                             near_tp_sl = f"{YELLOW}⚡ Near TP1{RESET}"
                         elif t['current_price'] <= t['entry'] - 0.002:
                             near_tp_sl = f"{MAGENTA}⚠ Near SL{RESET}"
@@ -910,7 +936,7 @@ def run_bot():
                         elif t['current_price'] >= t['entry'] + 0.002:
                             near_tp_sl = f"{MAGENTA}⚠ Near SL{RESET}"
 
-                    log(f"{dash_color}{t['pair']}{RESET} | Signal: {t['signal']} | Entry: {t['entry']} | Current: {t['current_price']} | P/L: {pnl_color}{t['pnl']:.4f}{RESET} | TP1_hit: {t['TP1_hit']} | TP2_hit: {t['TP2_hit']} | TP3_hit: {t['TP3_hit']} | SL_hit: {t['SL_hit']} {near_tp_sl}")
+                    log(f"{dash_color}{t['pair']}{RESET} | Signal: {t['signal']} | Entry: {t['entry']} | Current: {t['current_price']} | P/L: {pnl_color}{t['pnl']:.5f}{RESET} | TP1_hit: {t['TP1_hit']} | TP2_hit: {t['TP2_hit']} | TP3_hit: {t['TP3_hit']} | SL_hit: {t['SL_hit']} {near_tp_sl}")
                 log("----- END DASHBOARD -----")
 
             # --- Retrain heuristic if needed ---
