@@ -813,7 +813,7 @@ def run_bot():
                            tp3 = entry_price + 0.0120   # +120 pips
                            sl  = entry_price - 0.0050   # -50 pips
 
-                  elif signal == "SELL":
+                elif signal == "SELL":
                       if pair in gold_pairs:
                           tp1 = entry_price - 0.0050   # -50 pips
                           tp2 = entry_price - 0.0100   # -100 pips
