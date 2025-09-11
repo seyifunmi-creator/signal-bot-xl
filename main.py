@@ -805,32 +805,32 @@ def run_bot():
                                 sustained = False
                             accept_signal = sustained
 
-                       if accept_signal and signal and pair not in active_trades:
-                           open_trade(pair, signal, price, df=df, mode='live')
-                           log(f"[INTERNAL] Opened {pair} {signal} @ {price}")
+                        if accept_signal and signal and pair not in active_trades:
+                            open_trade(pair, signal, price, df=df, mode='live')
+                            log(f"[INTERNAL] Opened {pair} {signal} @ {price}")
 
-                       # Check active trades for TP/SL hits (use current price)
-                       if pair in active_trades:
-                           check_trades(pair, price, df=fetch_data(pair, interval='5m', period_days=30))
+                        # Check active trades for TP/SL hits (use current price)
+                        if pair in active_trades:
+                            check_trades(pair, price, df=fetch_data(pair, interval='5m', period_days=30))
 
-                       # Display dashboard after all pairs processed
-                       display_dashboard()
+                        # Display dashboard after all pairs processed
+                        display_dashboard()
 
-                       # Auto-disable test mode when all test trades are closed
-                       if TEST_MODE and not any(t.get('mode')=='test' for t in active_trades.values()):
-                           TEST_MODE = False
-                           print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
-                           log("Test mode completed, switching to live.")
+                        # Auto-disable test mode when all test trades are closed
+                        if TEST_MODE and not any(t.get('mode')=='test' for t in active_trades.values()):
+                            TEST_MODE = False
+                            print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
+                            log("Test mode completed, switching to live.")
 
-                       # Periodic retrain
-                       if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
-                           train_heuristic()
+                        # Periodic retrain
+                        if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
+                            train_heuristic()
 
-                       time.sleep(SLEEP_INTERVAL)
-                   except Exception as e:
-                       log(f"run_bot loop error: {e}")
-                       traceback.print_exc()
-                       time.sleep(5)
+                        time.sleep(SLEEP_INTERVAL)
+                    except Exception as e:
+                        log(f"run_bot loop error: {e}")
+                        traceback.print_exc()
+                        time.sleep(5)
             
 # ===========================
 # MT5 P/L monitor (prints MT5 positions P/L)
