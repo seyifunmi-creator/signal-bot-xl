@@ -762,17 +762,21 @@ def run_bot():
                 tick = mt5.symbol_info_tick(pair)
                 if tick is None:
                     log(f"[WARN] No tick data for {pair}. Skipping this pair.")
-                    continue  # skip this iteration if no tick data
-                # Use 'ask' for BUY, 'bid' for SELL trades
-                price = tick.ask if signal == "BUY" else tick.bid
-
-                # Safety check: skip invalid prices
-                if price <= 0.0:
-                    log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
                     continue
-                # Optional debug: show the fetched price
-                print(f"[DEBUG] {pair} price: {price}")
-                # --- Safety check ---
+
+                # --- Determine signal BEFORE using it ---
+                if TEST_MODE and pair not in active_trades:
+                    signal = 'BUY'  # test mode default
+                else:
+                    # replace this with your actual internal signal generation
+                    signal = generate_signal(df)  # df must be defined first
+
+                if signal is None:
+                    log(f"[WARN] No signal generated for {pair}. Skipping.")
+                    continue
+
+                # --- Now it’s safe to assign price ---
+                price = tick.ask if signal == "BUY" else tick.bid
                 if price <= 0.0:
                     log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
                     continue
