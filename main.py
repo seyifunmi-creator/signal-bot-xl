@@ -208,12 +208,13 @@ def run_cycle():
     for ct in closed_trades:
         trades.remove(ct)
 
-    # --- Cycle summary ---
-    total_trades = len(trades)
+    # --- After processing all pairs in this cycle ---
+    total_trades = wins + losses
     accuracy = (wins / total_trades * 100) if total_trades > 0 else 0
-    summary_msg = f"\nCycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}\n"
-    print(summary_msg); logger.info(summary_msg)
 
+    # Console + log file
+    print(f"\nCycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}\n")
+    logger.info(f"Cycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}")
       
 # ------------------------
 # After all pairs in this cycle
