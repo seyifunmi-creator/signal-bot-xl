@@ -65,63 +65,71 @@ if not os.path.exists(HISTORY_FILE):
 
 # === MAIN CYCLE LOOP (run periodically in your scheduler) ===
 def run_cycle():
-    global wins, losses, profit, trades
+    global total_trades, wins, losses, profit
 
-    # --- Process internal EMA signals ---
     for pair in PAIRS:
         name = PAIR_NAMES.get(pair, pair)
 
-        # 1. Fetch latest candles from MT5
+        # --- Fetch latest candles from MT5 ---
         rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M15, 0, 50)
         df = pd.DataFrame(rates)
         df['EMA5'] = df['close'].ewm(span=5).mean()
         df['EMA12'] = df['close'].ewm(span=12).mean()
 
-        # 2. Sustained confirmation check
+        # --- Initialize signal safely ---
         signal = None
         if all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES)):
             signal = "BUY"
         elif all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES)):
             signal = "SELL"
 
-        # 3. Continue only if confirmed signal
+        # --- Only act if a signal exists ---
         if signal:
+            # Get dynamic TP/SL settings per pair
             settings = PAIR_SETTINGS.get(pair, DEFAULT_SETTINGS)
             tp1, tp2, tp3, sl = settings['TP1'], settings['TP2'], settings['TP3'], settings['SL']
 
-            entry_price = df['close'].iloc[-1]
+            # Current price for trade
+            current_price = df['close'].iloc[-1]
 
-            if signal == "BUY":
-                tp1_price = entry_price + tp1
-                tp2_price = entry_price + tp2
-                tp3_price = entry_price + tp3
-                sl_price = entry_price - sl
-            else:  # SELL
-                tp1_price = entry_price - tp1
-                tp2_price = entry_price - tp2
-                tp3_price = entry_price - tp3
-                sl_price = entry_price + sl
+            # Optional: your old pre-trade conditions (merge here)
+            # e.g., check trained stats, sustained confirmation, etc.
 
-            trade = {
-                'pair': name,
-                'signal': signal,
-                'entry': entry_price,
-                'TP1': tp1_price,
-                'TP2': tp2_price,
-                'TP3': tp3_price,
-                'SL': sl_price,
-                'TP1_hit': False,
-                'TP2_hit': False,
-                'TP3_hit': False,
-                'SL_hit': False,
-            }
-            trades.append(trade)
-            msg = f"NEW {signal} trade on {name} | Entry {entry_price} | TP1 {tp1_price}, TP2 {tp2_price}, TP3 {tp3_price}, SL {sl_price}"
-            print(msg); logger.info(msg)
+            # Open trade with dynamic TP/SL
+            open_trade(
+                pair,
+                signal,
+                current_price,
+                df=df,
+                mode='live',
+                tp1=tp1,
+                tp2=tp2,
+                tp3=tp3,
+                sl=sl
+            )
 
-    # --- Update trades with live price ---
-    closed_trades = []
-    # (your trade updates, TP/SL checks, closing logic, etc)
+            # Optional: any custom logging or notifications from old loop
+
+        # --- Update closed trades and stats for this pair ---
+        closed_trades = update_closed_trades(pair)  # keep your existing function
+        for trade in closed_trades:
+            total_trades += 1
+            if trade['result'] == 'WIN':
+                wins += 1
+            else:
+                losses += 1
+            profit += trade['pnl']
+            logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
+
+            # Optional: your old closed trade logging/notifications
+
+    # --- After all pairs processed ---
+    logger.info(
+        f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
+        f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
+    )
+
+    # Optional: any end-of-cycle logic from old loop (e.g., sleep, dashboard update)
     
     # Example: processing closed trades
     for trade in closed_trades:
@@ -502,7 +510,7 @@ def train_heuristic():
 # ===========================
 # TRADING: open/check/log (kept intact)
 # ===========================
-def open_trade(pair, signal, current_price, df=None, mode='live'):
+def open_trade(pair, signal, current_price, df=None, mode='live', tp1=None, tp2=None, tp3=None, sl=None):
     """
     Opens a trade with properly scaled TP and SL for all pairs
     """
@@ -516,7 +524,7 @@ def open_trade(pair, signal, current_price, df=None, mode='live'):
         else:
             pip_unit = 0.0001
 
-        # ATR-based TP/SL if df is provided
+        # Use ATR if df is provided, otherwise use passed TP/SL or defaults
         atr = calculate_atr(df) if df is not None else None
         if atr is not None:
             tp1_val = atr
@@ -524,11 +532,13 @@ def open_trade(pair, signal, current_price, df=None, mode='live'):
             tp3_val = atr * 3
             sl_val = atr * 1.25
         else:
-            tp1_val = TP1 * pip_unit
-            tp2_val = (TP1 + TP2) * pip_unit
-            tp3_val = (TP1 + TP2 + TP3) * pip_unit
-            sl_val = SL * pip_unit
+            # Use dynamic TP/SL passed from PAIR_SETTINGS
+            tp1_val = tp1 * pip_unit if tp1 is not None else TP1 * pip_unit
+            tp2_val = tp2 * pip_unit if tp2 is not None else (TP1 + TP2) * pip_unit
+            tp3_val = tp3 * pip_unit if tp3 is not None else (TP1 + TP2 + TP3) * pip_unit
+            sl_val  = sl  * pip_unit if sl  is not None else SL * pip_unit
 
+        # Store trade in active_trades
         active_trades[pair] = {
             'Pair': pair,
             'Signal': signal,
