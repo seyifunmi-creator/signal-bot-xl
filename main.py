@@ -810,21 +810,20 @@ def run_bot():
                     if trade['Pair'] != pair:
                         continue
 
-                    # Check TP/SL hits
                     if trade['Signal'] == 'BUY':
-                        if current_price >= trade['TP1'] and not trade['TP1_hit']:
+                        if price >= trade['TP1'] and not trade['TP1_hit']:
                             trade['TP1_hit'] = True
-                        if current_price <= trade['SL']:
-                           trade['SL_hit'] = True
-                           closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': current_price - trade['Entry']})
-                           del active_trades[pair]
-                    else: # SELL
-                       if current_price <= trade['TP1'] and not trade['TP1_hit']:
-                           trade['TP1_hit'] = True
-                       if current_price >= trade['SL']:
-                           trade['SL_hit'] = True
-                           closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': trade['Entry'] - current_price})
-                           del active_trades[pair]
+                        if price <= trade['SL']:
+                            trade['SL_hit'] = True
+                            closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': price - trade['Entry']})
+                            del active_trades[pair]
+                    else:  # SELL
+                        if price <= trade['TP1'] and not trade['TP1_hit']:
+                            trade['TP1_hit'] = True
+                        if price >= trade['SL']:
+                            trade['SL_hit'] = True
+                            closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': trade['Entry'] - price})
+                            del active_trades[pair]
                 for trade in closed_trades:
                     total_trades += 1
                     if trade['result'] == 'WIN':
