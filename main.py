@@ -844,13 +844,13 @@ def run_bot():
                                     sustained = False
                                 accept_signal = sustained
 
-                    if accept_signal and signal and pair not in active_trades:
-                        open_trade(pair, signal, price, df=df, mode='live')
-                        log(f"[INTERNAL] Opened {pair} {signal} @ {price}")
+            if accept_signal and signal and pair not in active_trades:
+                open_trade(pair, signal, price, df=df, mode='live')
+                log(f"[INTERNAL] Opened {pair} {signal} @ {price}")
 
-                # Check active trades for TP/SL hits (use current price)
-                if pair in active_trades:
-                    check_trades(pair, price, df=fetch_data(pair, interval='5m', period_days=30))
+            # Check active trades for TP/SL hits (use current price)
+            if pair in active_trades:
+                check_trades(pair, price, df=fetch_data(pair, interval='5m', period_days=30))
 
             # Display dashboard after all pairs processed
             display_dashboard()
