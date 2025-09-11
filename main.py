@@ -795,7 +795,7 @@ def run_bot():
                                 accept_signal = True
                             else:
                             # let sustained EMA condition allow acceptance even with low base_prob
-                            sustained = False
+                                sustained = False
                             try:
                                 if signal == 'BUY':
                                     sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
