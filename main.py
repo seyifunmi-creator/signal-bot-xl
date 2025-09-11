@@ -137,6 +137,11 @@ def run_cycle():
 
     # --- Update trades with live price ---
     closed_trades = []
+# after all pairs processed in this cycle
+logger.info(
+    f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
+    f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
+)
 
     for trade in trades:
         symbol = trade['pair'].replace('/', '')  # MT5 symbol format
@@ -204,9 +209,16 @@ def run_cycle():
                       f"Status: {' '.join(tp_status) if tp_status else 'Active'}")
         print(status_msg); logger.info(status_msg)
 
-    # --- Remove closed trades ---
+    # --- remove closed trades ---
     for ct in closed_trades:
         trades.remove(ct)
+
+    # --- cycle summary ---
+    total_trades = wins + losses
+    accuracy = (wins / total_trades * 100) if total_trades > 0 else 0
+
+    print(f"\nCycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}\n")
+    logger.info(f"Cycle Summary → Total trades {total_trades}, Wins {wins}, Losses {losses}, Accuracy {accuracy:.2f}%, Net P/L {profit:.2f}")
 
     # --- After processing all pairs in this cycle ---
     total_trades = wins + losses
