@@ -814,7 +814,7 @@ def run_bot():
                            sl  = entry_price - 0.0050   # -50 pips
 
                 elif signal == "SELL":
-                      if pair in gold_pairs = ["XAUUSD", "GC=F"]
+                      if pair in gold_pairs:
                           tp1 = entry_price - 0.0050   # -50 pips
                           tp2 = entry_price - 0.0100   # -100 pips
                           tp3 = entry_price - 0.0150   # -150 pips
