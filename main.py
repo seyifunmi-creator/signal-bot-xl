@@ -748,14 +748,23 @@ def display_dashboard():
 # ===========================
 # MAIN BOT LOOP
 # ===========================
+# ANSI color codes
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+MAGENTA = "\033[95m"
+RESET = "\033[0m"
+
 def run_bot():
     global total_trades, wins, losses, profit, last_trained
 
-    # Track which pairs have been opened in test mode
     initial_test_opened = set()
+    gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
 
     while True:
         try:
+            open_trades_snapshot = []
+
             for pair in PAIRS:
                 name = PAIR_NAMES.get(pair, pair)
 
@@ -772,16 +781,12 @@ def run_bot():
                     log(f"[WARN] No historical data for {pair}. Skipping.")
                     continue
 
-                # --- Calculate EMA once ---
+                # --- Calculate EMAs ---
                 df['EMA5'] = df['close'].ewm(span=5).mean()
                 df['EMA12'] = df['close'].ewm(span=12).mean()
 
-                # --- Determine signal ---
-                if TEST_MODE and pair not in active_trades:
-                    signal = 'BUY'  # default for test
-                else:
-                    signal = generate_signal(df)
-
+                # --- Generate signal ---
+                signal = generate_signal(df)
                 if signal is None:
                     log(f"[WARN] No signal for {pair}. Skipping.")
                     continue
@@ -792,80 +797,121 @@ def run_bot():
                     log(f"[WARN] Invalid price {price} for {pair}. Skipping.")
                     continue
 
-                tp1 = tp2 = tp3 = sl = None
-
-                # --- TEST MODE ---
-                if TEST_MODE and pair not in active_trades:
-                    open_trade(pair, 'BUY', price, df=None, mode='test')
-                    initial_test_opened.add(pair)
-                    log(f"[TEST] Opened test trade for {pair} @ {price}")
-
-                # --- LIVE MODE ---
-                elif not TEST_MODE and pair not in active_trades:
-                    # Acceptance filter using trained stats
-                    accept_signal = True
-                    stats = trained_stats.get(pair)
-                    if stats:
-                        base_prob = stats.get('p_tp3', 0.15)
-                        if base_prob < 0.10:
-                            # Allow sustained EMA override
-                            if signal == 'BUY':
-                                accept_signal = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)]
-                                                    for i in range(REQUIRED_SUSTAINED_CANDLES))
-                            else:
-                                accept_signal = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)]
-                                                    for i in range(REQUIRED_SUSTAINED_CANDLES))
-
-                    if accept_signal:
-                        entry_price = price
-                        gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
-
-                        if signal == "BUY":
-                            if pair in gold_pairs:
-                                tp1, tp2, tp3, sl = entry_price+0.0050, entry_price+0.0100, entry_price+0.0150, entry_price-0.0070
-                            else:
-                                tp1, tp2, tp3, sl = entry_price+0.0040, entry_price+0.0080, entry_price+0.0120, entry_price-0.0050
-                        else:  # SELL
-                            if pair in gold_pairs:
-                                tp1, tp2, tp3, sl = entry_price-0.0050, entry_price-0.0100, entry_price-0.0150, entry_price+0.0070
-                            else:
-                                tp1, tp2, tp3, sl = entry_price-0.0040, entry_price-0.0080, entry_price-0.0120, entry_price+0.0050
-
-                        open_trade(pair, signal, entry_price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
-
-                # --- Update closed trades ---
-                closed_trades = []
-                for trade in list(active_trades.values()):
-                    if trade['Pair'] != pair:
-                        continue
-
-                    if trade['Signal'] == 'BUY':
-                        if price >= trade['TP1'] and not trade['TP1_hit']:
-                            trade['TP1_hit'] = True
-                            closed_trades.append({'pair': pair, 'result': 'WIN', 'pnl': trade['TP1'] - trade['Entry']})
-                            del active_trades[pair]
-                        elif price <= trade['SL']:
-                            trade['SL_hit'] = True
-                            closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': price - trade['Entry']})
-                            del active_trades[pair]
-                    else:  # SELL
-                        if price <= trade['TP1'] and not trade['TP1_hit']:
-                            trade['TP1_hit'] = True
-                            closed_trades.append({'pair': pair, 'result': 'WIN', 'pnl': trade['Entry'] - trade['TP1']})
-                            del active_trades[pair]
-                        elif price >= trade['SL']:
-                            trade['SL_hit'] = True
-                            closed_trades.append({'pair': pair, 'result': 'LOSS', 'pnl': trade['Entry'] - price})
-                            del active_trades[pair]
-
-                for trade in closed_trades:
-                    total_trades += 1
-                    if trade['result'] == 'WIN':
-                        wins += 1
+                # --- Calculate TP/SL ---
+                if signal == "BUY":
+                    if pair in gold_pairs:
+                        tp1, tp2, tp3, sl = price+0.0050, price+0.0100, price+0.0150, price-0.0070
                     else:
-                        losses += 1
-                    profit += trade['pnl']
-                    logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
+                        tp1, tp2, tp3, sl = price+0.0040, price+0.0080, price+0.0120, price-0.0050
+                else:  # SELL
+                    if pair in gold_pairs:
+                        tp1, tp2, tp3, sl = price-0.0050, price-0.0100, price-0.0150, price+0.0070
+                    else:
+                        tp1, tp2, tp3, sl = price-0.0040, price-0.0080, price-0.0120, price+0.0050
+
+                # --- Preview signal with risk check and color ---
+                buffer = 0.0002 if pair not in gold_pairs else 0.5
+                near_tp_sl = ""
+                if signal == 'BUY':
+                    color = GREEN
+                    if price >= tp1 - buffer:
+                        near_tp_sl = f"{YELLOW}⚡ Near TP1!{RESET}"
+                    elif price <= sl + buffer:
+                        near_tp_sl = f"{MAGENTA}⚠ Near SL!{RESET}"
+                else:  # SELL
+                    color = RED
+                    if price <= tp1 + buffer:
+                        near_tp_sl = f"{YELLOW}⚡ Near TP1!{RESET}"
+                    elif price >= sl - buffer:
+                        near_tp_sl = f"{MAGENTA}⚠ Near SL!{RESET}"
+
+                log(f"{color}[PREVIEW]{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl} {near_tp_sl}")
+
+                # --- Open trade if allowed ---
+                if pair not in active_trades:
+                    mode = 'test' if TEST_MODE else 'live'
+                    open_trade(pair, signal, price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl, mode=mode)
+                    log_type = "[TEST]" if TEST_MODE else "[TRADE OPENED]"
+                    log(f"{color}{log_type}{RESET} {pair} | Signal: {signal} | Entry: {price} | TP1: {tp1} | TP2: {tp2} | TP3: {tp3} | SL: {sl}")
+                    if TEST_MODE:
+                        initial_test_opened.add(pair)
+
+                # --- Add to dashboard snapshot ---
+                if pair in active_trades:
+                    trade = active_trades[pair]
+                    # compute P/L
+                    if trade['Signal'] == 'BUY':
+                        pnl = price - trade['Entry']
+                    else:
+                        pnl = trade['Entry'] - price
+                    open_trades_snapshot.append({
+                        'pair': pair,
+                        'signal': trade['Signal'],
+                        'entry': trade['Entry'],
+                        'TP1_hit': trade.get('TP1_hit', False),
+                        'TP2_hit': trade.get('TP2_hit', False),
+                        'TP3_hit': trade.get('TP3_hit', False),
+                        'SL_hit': trade.get('SL_hit', False),
+                        'current_price': price,
+                        'pnl': pnl
+                    })
+
+            # --- Update closed trades ---
+            closed_trades = []
+            for trade in list(active_trades.values()):
+                tick = mt5.symbol_info_tick(trade['Pair'])
+                price = tick.last if tick else None
+                if price is None:
+                    continue
+
+                if trade['Signal'] == 'BUY':
+                    if price >= trade['TP1'] and not trade['TP1_hit']:
+                        trade['TP1_hit'] = True
+                        closed_trades.append({'pair': trade['Pair'], 'result': 'WIN', 'pnl': trade['TP1'] - trade['Entry']})
+                        del active_trades[trade['Pair']]
+                    elif price <= trade['SL']:
+                        trade['SL_hit'] = True
+                        closed_trades.append({'pair': trade['Pair'], 'result': 'LOSS', 'pnl': price - trade['Entry']})
+                        del active_trades[trade['Pair']]
+                else:  # SELL
+                    if price <= trade['TP1'] and not trade['TP1_hit']:
+                        trade['TP1_hit'] = True
+                        closed_trades.append({'pair': trade['Pair'], 'result': 'WIN', 'pnl': trade['Entry'] - trade['TP1']})
+                        del active_trades[trade['Pair']]
+                    elif price >= trade['SL']:
+                        trade['SL_hit'] = True
+                        closed_trades.append({'pair': trade['Pair'], 'result': 'LOSS', 'pnl': trade['Entry'] - price})
+                        del active_trades[trade['Pair']]
+
+            for trade in closed_trades:
+                total_trades += 1
+                if trade['result'] == 'WIN':
+                    wins += 1
+                else:
+                    losses += 1
+                profit += trade['pnl']
+                logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
+
+            # --- Dashboard summary with P/L color ---
+            if open_trades_snapshot:
+                log("----- OPEN TRADES DASHBOARD -----")
+                for t in open_trades_snapshot:
+                    dash_color = GREEN if t['signal'] == 'BUY' else RED
+                    pnl_color = GREEN if t['pnl'] >= 0 else RED
+                    near_tp_sl = ""
+                    if t['signal'] == 'BUY':
+                        if t['current_price'] >= t['entry'] + 0.002:  # simple buffer
+                            near_tp_sl = f"{YELLOW}⚡ Near TP1{RESET}"
+                        elif t['current_price'] <= t['entry'] - 0.002:
+                            near_tp_sl = f"{MAGENTA}⚠ Near SL{RESET}"
+                    else:
+                        if t['current_price'] <= t['entry'] - 0.002:
+                            near_tp_sl = f"{YELLOW}⚡ Near TP1{RESET}"
+                        elif t['current_price'] >= t['entry'] + 0.002:
+                            near_tp_sl = f"{MAGENTA}⚠ Near SL{RESET}"
+
+                    log(f"{dash_color}{t['pair']}{RESET} | Signal: {t['signal']} | Entry: {t['entry']} | Current: {t['current_price']} | P/L: {pnl_color}{t['pnl']:.4f}{RESET} | TP1_hit: {t['TP1_hit']} | TP2_hit: {t['TP2_hit']} | TP3_hit: {t['TP3_hit']} | SL_hit: {t['SL_hit']} {near_tp_sl}")
+                log("----- END DASHBOARD -----")
 
             # --- Retrain heuristic if needed ---
             if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
