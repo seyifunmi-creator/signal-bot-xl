@@ -785,7 +785,7 @@ def run_bot():
                         # Open the trade
                         open_trade(pair, signal, entry_price, df=df,
                                    tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
-                          stats = trained_stats.get(pair)
+                        stats = trained_stats.get(pair)
                           if not stats:
                               # no trained stats: accept signal (keeps signals frequent)
                               accept_signal = True
