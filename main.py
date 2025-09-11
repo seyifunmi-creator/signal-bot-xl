@@ -50,6 +50,11 @@ PAIR_NAMES = {
     'USDJPY': 'USD/JPY', 'USDCAD': 'USD/CAD',
     'XAUUSD': 'Gold/USD'
 }
+# --- Global trade stats ---
+total_trades = 0
+wins = 0
+losses = 0
+profit = 0.0
 
 # --- Trade history CSV setup ---
 HISTORY_FILE = "trade_history.csv"
@@ -116,10 +121,24 @@ def run_cycle():
 
     # --- Update trades with live price ---
     closed_trades = []
-    # after all pairs processed in this cycle
+    # (your trade updates, TP/SL checks, closing logic, etc)
+    
+    # Example: processing closed trades
+    for trade in closed_trades:
+        total_trades += 1
+        if trade['result'] == 'WIN':
+                wins += 1
+        else:
+            losses += 1
+        profit += trade['pnl']
+        logger.info(
+            f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}"
+        )
+
+    # ✅ after all pairs processed in this cycle
     logger.info(
-       f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
-       f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
+        f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
+        f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
     )
 
     for trade in trades:
