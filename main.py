@@ -739,52 +739,52 @@ def run_bot():
     while True:
         try:
             # For each pair: internal signal generation, trade checks
-            for pair in PAIRS:
-                # Get historical data and live price
-                df = fetch_data(pair, interval=TRAIN_INTERVAL, period_days=7)  # smaller short fetch for signal
-                price = get_live_price(pair)
-                if price is None:
-                    # If cannot fetch live price, skip pair this cycle
-                    continue
+           for pair in PAIRS:
+               price = get_current_price(pair)  # make sure you have current price
+               signal = None
+               tp1 = tp2 = tp3 = sl = None  # initialize TP/SL
 
-                # One-cycle test: open only one trade per pair in test mode
-                if TEST_MODE and pair not in active_trades:
-                    # Keep your original behavior: open BUY for test cycles
-                    open_trade(pair, 'BUY', price, df=df, mode='test')
-                    initial_test_opened.add(pair)
-                    log(f"[TEST] Opened test trade for {pair} @ {price}")
-                elif not TEST_MODE:
-                    # Internal signal generation using EMA/RSI
-                    signal = generate_signal(df)
-                    # Apply a small loosened acceptance filter using trained_stats (improves precision but not overly strict)
-                    accept_signal = False
-                if signal:
-                    # Pair-specific SL and TP rules
-                    gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+               if TEST_MODE and pair not in active_trades:
+               # Keep your original behavior: open BUY for test cycles
+               open_trade(pair, 'BUY', price, df=df, mode='test')
+               initial_test_opened.add(pair)
+               log(f"[TEST] Opened test trade for {pair} @ {price}")
 
-                    if signal == "BUY":
-                        if pair in gold_pairs:
-                            tp1 = entry_price + 0.0050   # +50 pips
-                            tp2 = entry_price + 0.0100   # +100 pips
-                            tp3 = entry_price + 0.0150   # +150 pips
-                            sl  = entry_price - 0.0070   # -70 pips
-                    else:
-                           tp1 = entry_price + 0.0040   # +40 pips
-                           tp2 = entry_price + 0.0080   # +80 pips
-                           tp3 = entry_price + 0.0120   # +120 pips
-                           sl  = entry_price - 0.0050   # -50 pips
+          else:  # not TEST_MODE
+              # Internal signal generation using EMA/RSI
+              signal = generate_signal(df)
 
-                elif signal == "SELL":
+              # Only apply TP/SL rules if a signal exists
+              if signal:
+                  gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
+                  entry_price = price  # Use current price as entry
+
+                  if signal == "BUY":
                       if pair in gold_pairs:
-                          tp1 = entry_price - 0.0050   # -50 pips
-                          tp2 = entry_price - 0.0100   # -100 pips
-                          tp3 = entry_price - 0.0150   # -150 pips
-                          sl  = entry_price + 0.0070   # +70 pips
+                          tp1 = entry_price + 0.0050
+                          tp2 = entry_price + 0.0100
+                          tp3 = entry_price + 0.0150
+                          sl  = entry_price - 0.0070
                       else:
-                          tp1 = entry_price - 0.0040   # -40 pips
-                          tp2 = entry_price - 0.0080   # -80 pips
-                          tp3 = entry_price - 0.0120   # -120 pips
-                          sl  = entry_price + 0.0050   # +50 pips  
+                          tp1 = entry_price + 0.0040
+                          tp2 = entry_price + 0.0080
+                          tp3 = entry_price + 0.0120
+                          sl  = entry_price - 0.0050
+                  else:  # SELL
+                      if pair in gold_pairs:
+                          tp1 = entry_price - 0.0050
+                          tp2 = entry_price - 0.0100
+                          tp3 = entry_price - 0.0150
+                          sl  = entry_price + 0.0070
+                      else:
+                          tp1 = entry_price - 0.0040
+                          tp2 = entry_price - 0.0080
+                          tp3 = entry_price - 0.0120
+                          sl  = entry_price + 0.0050
+
+                  # Open the trade
+                  open_trade(pair, signal, entry_price, df=df,
+                             tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
                           stats = trained_stats.get(pair)
                           if not stats:
                               # no trained stats: accept signal (keeps signals frequent)
