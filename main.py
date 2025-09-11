@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 wins, losses, profit = 0, 0, 0
 trades = []
 REQUIRED_SUSTAINED_CANDLES = 3
+# --- Global trade stats ---
+total_trades = 0
+wins = 0
+losses = 0
+profit = 0.0
 
 # --- Pair Settings (TP/SL per instrument) ---
 PAIR_SETTINGS = {
@@ -50,11 +55,6 @@ PAIR_NAMES = {
     'USDJPY': 'USD/JPY', 'USDCAD': 'USD/CAD',
     'XAUUSD': 'Gold/USD'
 }
-# --- Global trade stats ---
-total_trades = 0
-wins = 0
-losses = 0
-profit = 0.0
 
 # --- Trade history CSV setup ---
 HISTORY_FILE = "trade_history.csv"
@@ -85,33 +85,16 @@ def run_cycle():
 
         # --- Only act if a signal exists ---
         if signal:
-            # Get dynamic TP/SL settings per pair
             settings = PAIR_SETTINGS.get(pair, DEFAULT_SETTINGS)
             tp1, tp2, tp3, sl = settings['TP1'], settings['TP2'], settings['TP3'], settings['SL']
-
-            # Current price for trade
             current_price = df['close'].iloc[-1]
 
-            # Optional: your old pre-trade conditions (merge here)
-            # e.g., check trained stats, sustained confirmation, etc.
+            # Open trade safely
+            open_trade(pair, signal, current_price, df=df, mode='live',
+                       tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
 
-            # Open trade with dynamic TP/SL
-            open_trade(
-                pair,
-                signal,
-                current_price,
-                df=df,
-                mode='live',
-                tp1=tp1,
-                tp2=tp2,
-                tp3=tp3,
-                sl=sl
-            )
-
-            # Optional: any custom logging or notifications from old loop
-
-        # --- Update closed trades and stats for this pair ---
-        closed_trades = update_closed_trades(pair)  # keep your existing function
+        # --- Update closed trades and stats ---
+        closed_trades = update_closed_trades(pair)  # your existing function
         for trade in closed_trades:
             total_trades += 1
             if trade['result'] == 'WIN':
@@ -121,13 +104,8 @@ def run_cycle():
             profit += trade['pnl']
             logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
 
-            # Optional: your old closed trade logging/notifications
-
-    # --- After all pairs processed ---
-    logger.info(
-        f"[SUMMARY] Cycle finished | Total trades: {total_trades}, "
-        f"Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}"
-    )
+    # --- Cycle summary ---
+    logger.info(f"[SUMMARY] Cycle finished | Total trades: {total_trades}, Wins: {wins}, Losses: {losses}, Net P/L: {profit:.2f}")
 
     # Optional: any end-of-cycle logic from old loop (e.g., sleep, dashboard update)
     
@@ -511,11 +489,7 @@ def train_heuristic():
 # TRADING: open/check/log (kept intact)
 # ===========================
 def open_trade(pair, signal, current_price, df=None, mode='live', tp1=None, tp2=None, tp3=None, sl=None):
-    """
-    Opens a trade with properly scaled TP and SL for all pairs
-    """
     try:
-        # Determine pip unit based on pair
         pair_upper = pair.upper()
         if 'JPY' in pair_upper:
             pip_unit = 0.01
@@ -524,29 +498,26 @@ def open_trade(pair, signal, current_price, df=None, mode='live', tp1=None, tp2=
         else:
             pip_unit = 0.0001
 
-        # Use ATR if df is provided, otherwise use passed TP/SL or defaults
         atr = calculate_atr(df) if df is not None else None
         if atr is not None:
             tp1_val = atr
-            tp2_val = atr * 2
-            tp3_val = atr * 3
-            sl_val = atr * 1.25
+            tp2_val = atr*2
+            tp3_val = atr*3
+            sl_val = atr*1.25
         else:
-            # Use dynamic TP/SL passed from PAIR_SETTINGS
-            tp1_val = tp1 * pip_unit if tp1 is not None else TP1 * pip_unit
-            tp2_val = tp2 * pip_unit if tp2 is not None else (TP1 + TP2) * pip_unit
-            tp3_val = tp3 * pip_unit if tp3 is not None else (TP1 + TP2 + TP3) * pip_unit
-            sl_val  = sl  * pip_unit if sl  is not None else SL * pip_unit
+            tp1_val = tp1*pip_unit if tp1 is not None else 40*pip_unit
+            tp2_val = tp2*pip_unit if tp2 is not None else 80*pip_unit
+            tp3_val = tp3*pip_unit if tp3 is not None else 120*pip_unit
+            sl_val  = sl*pip_unit if sl is not None else 50*pip_unit
 
-        # Store trade in active_trades
         active_trades[pair] = {
             'Pair': pair,
             'Signal': signal,
             'Entry': current_price,
-            'TP1': current_price + tp1_val if signal == 'BUY' else current_price - tp1_val,
-            'TP2': current_price + tp2_val if signal == 'BUY' else current_price - tp2_val,
-            'TP3': current_price + tp3_val if signal == 'BUY' else current_price - tp3_val,
-            'SL': current_price - sl_val if signal == 'BUY' else current_price + sl_val,
+            'TP1': current_price + tp1_val if signal=='BUY' else current_price - tp1_val,
+            'TP2': current_price + tp2_val if signal=='BUY' else current_price - tp2_val,
+            'TP3': current_price + tp3_val if signal=='BUY' else current_price - tp3_val,
+            'SL': current_price - sl_val if signal=='BUY' else current_price + sl_val,
             'TP1_hit': False,
             'TP2_hit': False,
             'TP3_hit': False,
@@ -557,9 +528,9 @@ def open_trade(pair, signal, current_price, df=None, mode='live', tp1=None, tp2=
 
         log(f"Opened {pair} {signal} @ {current_price} mode={'TEST' if mode=='test' else 'LIVE'}")
         print(f"\033[96m[TRADE OPENED] {PAIR_NAMES.get(pair,pair)} {signal} @ {current_price}\033[0m")
+
     except Exception as e:
         log(f"open_trade error for {pair}: {e}")
-
 def compute_live_pnl(trade, current_price):
     """
     Computes live P/L in pips for all pairs, including correct scaling for JPY and Gold.
