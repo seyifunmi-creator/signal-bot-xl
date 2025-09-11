@@ -747,11 +747,18 @@ def run_bot():
         try:
             for pair in PAIRS:
                 name = PAIR_NAMES.get(pair, pair)
+                # --- Fetch current price for the pair ---
                 tick = mt5.symbol_info_tick(pair)
-                if tick:
-                    price = tick.last
-                else:
-                    continue  # skip this pair if no tick data
+                if tick is None:
+                    log(f"[WARN] No tick data for {pair}. Skipping this pair.")
+                    continue  # skip this iteration if no tick data
+                price = tick.last  # safe to use now
+                # Optional debug: show the fetched price
+                print(f"[DEBUG] {pair} price: {price}")
+                # --- Safety check ---
+                if price <= 0.0:
+                    log(f"[WARN] Invalid price {price} for {pair}. Skipping trade.")
+                    continue
                 signal = None
                 tp1 = tp2 = tp3 = sl = None
 
