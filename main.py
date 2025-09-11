@@ -824,15 +824,15 @@ def run_bot():
                           tp2 = entry_price - 0.0080   # -80 pips
                           tp3 = entry_price - 0.0120   # -120 pips
                           sl  = entry_price + 0.0050   # +50 pips  
-                        stats = trained_stats.get(pair)
-                        if not stats:
-                            # no trained stats: accept signal (keeps signals frequent)
-                            accept_signal = True
-                        else:
-                            base_prob = stats.get('p_tp3', 0.15)  # fallback low base
-                            if base_prob >= 0.10:
-                                accept_signal = True
-                            else:
+                          stats = trained_stats.get(pair)
+                          if not stats:
+                              # no trained stats: accept signal (keeps signals frequent)
+                              accept_signal = True
+                          else:
+                              base_prob = stats.get('p_tp3', 0.15)  # fallback low base
+                              if base_prob >= 0.10:
+                                  accept_signal = True
+                              else:
                                 # let sustained EMA condition allow acceptance even with low base_prob
                                 sustained = False
                                 try:
