@@ -786,24 +786,24 @@ def run_bot():
                         open_trade(pair, signal, entry_price, df=df,
                                    tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
                         stats = trained_stats.get(pair)
-                          if not stats:
-                              # no trained stats: accept signal (keeps signals frequent)
-                              accept_signal = True
-                          else:
-                              base_prob = stats.get('p_tp3', 0.15)  # fallback low base
-                              if base_prob >= 0.10:
-                                  accept_signal = True
-                              else:
-                                # let sustained EMA condition allow acceptance even with low base_prob
+                        if not stats:
+                            # no trained stats: accept signal (keeps signals frequent)
+                            accept_signal = True
+                        else:
+                            base_prob = stats.get('p_tp3', 0.15)  # fallback low base
+                            if base_prob >= 0.10:
+                                accept_signal = True
+                            else:
+                            # let sustained EMA condition allow acceptance even with low base_prob
+                            sustained = False
+                            try:
+                                if signal == 'BUY':
+                                    sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
+                                else:
+                                    sustained = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
+                            except Exception:
                                 sustained = False
-                                try:
-                                    if signal == 'BUY':
-                                        sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
-                                    else:
-                                        sustained = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
-                                except Exception:
-                                    sustained = False
-                                accept_signal = sustained
+                            accept_signal = sustained
 
             if accept_signal and signal and pair not in active_trades:
                 open_trade(pair, signal, price, df=df, mode='live')
