@@ -751,7 +751,7 @@ def run_bot():
                 if tick:
                     price = tick.last
                 else:
-                continue  # skip this pair if no tick data
+                    continue  # skip this pair if no tick data
                 signal = None
                 tp1 = tp2 = tp3 = sl = None
 
