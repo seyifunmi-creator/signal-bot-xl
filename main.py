@@ -733,104 +733,86 @@ def display_dashboard():
 # MAIN BOT LOOP
 # ===========================
 def run_bot():
-    global TEST_MODE, last_trained
-    # Train on startup for initial heuristics
-    train_heuristic()
+    global total_trades, wins, losses, profit
+
+    # Track which pairs have been opened in test mode
+    initial_test_opened = set()
+
     while True:
         try:
-            # For each pair: internal signal generation, trade checks
-           for pair in PAIRS:
-               price = get_current_price(pair)  # make sure you have current price
-               signal = None
-               tp1 = tp2 = tp3 = sl = None  # initialize TP/SL
+            for pair in PAIRS:
+                name = PAIR_NAMES.get(pair, pair)
+                price = get_current_price(pair)  # current market price
+                signal = None
+                tp1 = tp2 = tp3 = sl = None
 
-               if TEST_MODE and pair not in active_trades:
-                   # Keep your original behavior: open BUY for test cycles
-                   open_trade(pair, 'BUY', price, df=df, mode='test')
-                   initial_test_opened.add(pair)
-                   log(f"[TEST] Opened test trade for {pair} @ {price}")
+                # --- TEST MODE ---
+                if TEST_MODE and pair not in active_trades:
+                    open_trade(pair, 'BUY', price, df=None, mode='test')
+                    initial_test_opened.add(pair)
+                    log(f"[TEST] Opened test trade for {pair} @ {price}")
 
-               else:  # not TEST_MODE
-                   # Internal signal generation using EMA/RSI
-                   signal = generate_signal(df)
+                # --- LIVE MODE ---
+                else:
+                    df = get_pair_dataframe(pair)  # your function to fetch MT5 candles
+                    signal = generate_signal(df)
 
-                   # Only apply TP/SL rules if a signal exists
-                   if signal:
+                    # Acceptance filter using trained stats
+                    accept_signal = False
+                    stats = trained_stats.get(pair)
+                    if stats:
+                        base_prob = stats.get('p_tp3', 0.15)
+                        if base_prob >= 0.10:
+                            accept_signal = True
+                        else:
+                            # Allow sustained EMA condition to override
+                            if signal == 'BUY':
+                                sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
+                            else:
+                                sustained = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
+                            accept_signal = sustained
+                    else:
+                        accept_signal = True  # no stats, accept signal
+
+                    # Only open trade if accepted and no active trade
+                    if accept_signal and signal and pair not in active_trades:
+                        entry_price = price
                         gold_pairs = ["XAU/USD", "GC=F", "Gold/USD"]
-                        entry_price = price  # Use current price as entry
 
                         if signal == "BUY":
                             if pair in gold_pairs:
-                                tp1 = entry_price + 0.0050
-                                tp2 = entry_price + 0.0100
-                                tp3 = entry_price + 0.0150
-                                sl  = entry_price - 0.0070
+                                tp1, tp2, tp3, sl = entry_price+0.0050, entry_price+0.0100, entry_price+0.0150, entry_price-0.0070
                             else:
-                                tp1 = entry_price + 0.0040
-                                tp2 = entry_price + 0.0080
-                                tp3 = entry_price + 0.0120
-                                sl  = entry_price - 0.0050
+                                tp1, tp2, tp3, sl = entry_price+0.0040, entry_price+0.0080, entry_price+0.0120, entry_price-0.0050
                         else:  # SELL
                             if pair in gold_pairs:
-                                tp1 = entry_price - 0.0050
-                                tp2 = entry_price - 0.0100
-                                tp3 = entry_price - 0.0150
-                                sl  = entry_price + 0.0070
+                                tp1, tp2, tp3, sl = entry_price-0.0050, entry_price-0.0100, entry_price-0.0150, entry_price+0.0070
                             else:
-                                tp1 = entry_price - 0.0040
-                                tp2 = entry_price - 0.0080
-                                tp3 = entry_price - 0.0120
-                                sl  = entry_price + 0.0050
+                                tp1, tp2, tp3, sl = entry_price-0.0040, entry_price-0.0080, entry_price-0.0120, entry_price+0.0050
 
-                        # Open the trade
-                        open_trade(pair, signal, entry_price, df=df,
-                                   tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
-                        stats = trained_stats.get(pair)
-                        if not stats:
-                            # no trained stats: accept signal (keeps signals frequent)
-                            accept_signal = True
-                        else:
-                            base_prob = stats.get('p_tp3', 0.15)  # fallback low base
-                            if base_prob >= 0.10:
-                                accept_signal = True
-                            else:
-                            # let sustained EMA condition allow acceptance even with low base_prob
-                                sustained = False
-                            try:
-                                if signal == 'BUY':
-                                    sustained = all(df['EMA5'].iloc[-(i+1)] > df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
-                                else:
-                                    sustained = all(df['EMA5'].iloc[-(i+1)] < df['EMA12'].iloc[-(i+1)] for i in range(REQUIRED_SUSTAINED_CANDLES))
-                            except Exception:
-                                sustained = False
-                            accept_signal = sustained
+                        open_trade(pair, signal, entry_price, df=df, tp1=tp1, tp2=tp2, tp3=tp3, sl=sl)
 
-                        if accept_signal and signal and pair not in active_trades:
-                            open_trade(pair, signal, price, df=df, mode='live')
-                            log(f"[INTERNAL] Opened {pair} {signal} @ {price}")
+                # --- Update closed trades ---
+                closed_trades = update_closed_trades(pair)
+                for trade in closed_trades:
+                    total_trades += 1
+                    if trade['result'] == 'WIN':
+                        wins += 1
+                    else:
+                        losses += 1
+                    profit += trade['pnl']
+                    logger.info(f"[CLOSED] {trade['pair']} | Result: {trade['result']} | P/L: {trade['pnl']:.2f}")
 
-                        # Check active trades for TP/SL hits (use current price)
-                        if pair in active_trades:
-                            check_trades(pair, price, df=fetch_data(pair, interval='5m', period_days=30))
+            # Retrain heuristic if needed
+            if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
+                train_heuristic()
 
-                        # Display dashboard after all pairs processed
-                        display_dashboard()
+            time.sleep(SLEEP_INTERVAL)
 
-                        # Auto-disable test mode when all test trades are closed
-                        if TEST_MODE and not any(t.get('mode')=='test' for t in active_trades.values()):
-                            TEST_MODE = False
-                            print("\033[95m[INFO] Test mode completed. Switching to live EMA/RSI trading.\033[0m")
-                            log("Test mode completed, switching to live.")
-
-                        # Periodic retrain
-                        if last_trained is None or (datetime.now() - last_trained).days >= RETRAIN_DAYS:
-                            train_heuristic()
-
-                        time.sleep(SLEEP_INTERVAL)
-                        except Exception as e:
-                        log(f"run_bot loop error: {e}")
-                        traceback.print_exc()
-                        time.sleep(5)
+        except Exception as e:
+            log(f"run_bot loop error: {e}")
+            traceback.print_exc()
+            time.sleep(5)
             
 # ===========================
 # MT5 P/L monitor (prints MT5 positions P/L)
