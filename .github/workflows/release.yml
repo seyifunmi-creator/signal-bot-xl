@@ -41,7 +41,7 @@ jobs:
             --hidden-import=pandas `
             --hidden-import=yfinance `
             --hidden-import=pyttsx3 `
-         main.py
+            main.py
 
 
 
