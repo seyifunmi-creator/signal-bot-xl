@@ -30,7 +30,7 @@ jobs:
       - name: Build EXE
         shell: pwsh
         run: |
-          pyinstaller --onefile --noconsole `
+          python -m pyinstaller --onefile --noconsole `
             --name SignalBotXL `
             --hidden-import=numpy `
             --hidden-import=numpy._globals `
@@ -40,6 +40,7 @@ jobs:
             --hidden-import=yfinance `
             --hidden-import=pyttsx3 `
             main.py
+
 
       - name: Create GitHub Release
         id: create_release
