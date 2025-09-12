@@ -1,140 +1,105 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import time
-import logging
 from datetime import datetime
 
-# ===============================
-# CONFIG
-# ===============================
-PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "XAUUSD"]
-LOT = 0.1
-TP_LEVELS = [0.0030, 0.0060, 0.0090, 0.0120]  # Example for forex (30, 60, 90, 120 pips)
-XAU_TP = [50, 100, 150, 200]  # Gold points
-XAU_SL = 70
-FOREX_SL = 0.0040
-LOG_FILE = "trade_log.csv"
+# ----------------- CONFIG -----------------
+PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'XAUUSD']
+TP_DIST = {'EURUSD': [30, 60, 90, 120],
+           'GBPUSD': [30, 60, 90, 120],
+           'USDJPY': [0.3, 0.6, 0.9, 1.2],
+           'USDCAD': [30, 60, 90, 120],
+           'XAUUSD': [50, 100, 150, 200]}
+SL_DIST = {'EURUSD': 40, 'GBPUSD': 40, 'USDJPY': 0.4, 'USDCAD': 40, 'XAUUSD': 70}
+UPDATE_INTERVAL = 60  # seconds
 
-# ===============================
-# LOGGING SETUP
-# ===============================
-logging.basicConfig(
-    filename="bot.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+# ----------------- INITIALIZATION -----------------
+mode_input = input("Start in live mode? (y/n): ").lower()
+LIVE_MODE = True if mode_input == 'y' else False
 
-# ===============================
-# HELPERS
-# ===============================
-def fmt_price(symbol, price):
-    digits = mt5.symbol_info(symbol).digits
-    return round(price, digits)
+if not mt5.initialize():
+    print("[ERROR] MT5 initialize() failed")
+    mt5.shutdown()
+    exit()
 
-def get_symbol_info(symbol):
-    info = mt5.symbol_info(symbol)
-    if info is None:
-        logging.error(f"Symbol not found: {symbol}")
-    return info
+account_info = mt5.account_info()
+print(f"[INFO] Connected to MT5 Account: {account_info.login} | Balance: {account_info.balance}")
 
-def calc_targets(symbol, entry, direction):
-    if symbol == "XAUUSD":
-        tps = [entry + (tp if direction == "BUY" else -tp) for tp in XAU_TP]
-        sl = entry - XAU_SL if direction == "BUY" else entry + XAU_SL
-    else:
-        tps = [entry + (tp if direction == "BUY" else -tp) for tp in TP_LEVELS]
-        sl = entry - FOREX_SL if direction == "BUY" else entry + FOREX_SL
-    return [fmt_price(symbol, t) for t in tps], fmt_price(symbol, sl)
+# ----------------- DATA STRUCTURES -----------------
+trades = []
 
-# ===============================
-# TRADE EXECUTION
-# ===============================
-def open_trade(symbol, direction, live):
-    price = mt5.symbol_info_tick(symbol).ask if direction == "BUY" else mt5.symbol_info_tick(symbol).bid
-    tps, sl = calc_targets(symbol, price, direction)
+# ----------------- UTILITIES -----------------
+def fmt_price(price):
+    return round(price, 5 if 'USD' in PAIRS[0] else 2)
 
-    if live:
+def calculate_levels(pair, entry, direction):
+    tp_levels = []
+    sl = entry - SL_DIST[pair] if direction == 'BUY' else entry + SL_DIST[pair]
+    for dist in TP_DIST[pair]:
+        tp = entry + dist if direction == 'BUY' else entry - dist
+        tp_levels.append(tp)
+    return sl, tp_levels
+
+def calculate_live_pl(entry, now, direction):
+    diff = now - entry
+    return diff if direction == 'BUY' else -diff
+
+def check_tp_warning(tp_levels, now, direction):
+    # TP3/4 may be unrealistic if far from current price
+    if direction == 'BUY' and (tp_levels[2] - now) > TP_DIST[PAIRS[0]][2]*2:
+        return True
+    if direction == 'SELL' and (now - tp_levels[2]) > TP_DIST[PAIRS[0]][2]*2:
+        return True
+    return False
+
+# ----------------- TRADING FUNCTIONS -----------------
+def open_trade(pair, direction):
+    entry = mt5.symbol_info_tick(pair).ask if direction == 'BUY' else mt5.symbol_info_tick(pair).bid
+    sl, tp_levels = calculate_levels(pair, entry, direction)
+    trade = {'pair': pair, 'direction': direction, 'entry': entry, 'sl': sl, 'tp_levels': tp_levels, 'manual_close': False}
+    trades.append(trade)
+    if LIVE_MODE:
+        symbol = pair
+        volume = 0.1
+        price = entry
+        deviation = 10
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
-            "volume": LOT,
-            "type": mt5.ORDER_TYPE_BUY if direction == "BUY" else mt5.ORDER_TYPE_SELL,
+            "volume": volume,
+            "type": mt5.ORDER_TYPE_BUY if direction == 'BUY' else mt5.ORDER_TYPE_SELL,
             "price": price,
             "sl": sl,
-            "tp": tps[-1],  # Hard tp = TP4
-            "deviation": 20,
-            "magic": 123456,
-            "comment": "Precision Bot",
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "tp": tp_levels[-1],
+            "deviation": deviation,
+            "magic": 234000,
+            "comment": "PrecisionBot"
         }
         result = mt5.order_send(request)
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            logging.error(f"OrderSend failed for {symbol}: {result.comment}")
-        else:
-            logging.info(f"Opened {direction} {symbol} @ {price}")
-    else:
-        logging.info(f"[TEST] Open {direction} {symbol} @ {price} | SL={sl} | TP1–TP4={tps}")
+            print(f"[ERROR] open_trade error for {pair}: {result.retcode}")
 
-    return {"symbol": symbol, "direction": direction, "entry": price, "tps": tps, "sl": sl, "open_time": datetime.now()}
-
-# ===============================
-# DASHBOARD + LOG
-# ===============================
-def display_dashboard(open_trades, closed_trades, balance, live):
+# ----------------- DASHBOARD -----------------
+def display_dashboard():
     print("\n=== Dashboard ===")
-    print(f"Mode: {'LIVE' if live else 'TEST'} | Active trades: {len(open_trades)} | Closed trades: {len(closed_trades)} | Balance: {balance}")
+    print(f"Mode: {'LIVE' if LIVE_MODE else 'TEST'} | Active trades: {len(trades)} | Balance: {mt5.account_info().balance if LIVE_MODE else 99999.97}")
+    for t in trades:
+        tick = mt5.symbol_info_tick(t['pair'])
+        now = tick.last if tick else t['entry']
+        live_pl = calculate_live_pl(t['entry'], now, t['direction'])
+        sl_warning = '⚠️' if (t['direction'] == 'BUY' and now - t['sl'] < 0.0005) or (t['direction']=='SELL' and t['sl'] - now < 0.0005) else ''
+        tp_warning = '⚡TP3/4 may be unrealistic' if check_tp_warning(t['tp_levels'], now, t['direction']) else ''
+        tp_checks = ['✔️' if (t['direction']=='BUY' and now>=tp) or (t['direction']=='SELL' and now<=tp) else '–' for tp in t['tp_levels']]
+        print(f"{t['pair']} {t['direction']} | Entry={fmt_price(t['entry'])} | Now={fmt_price(now)} | SL={fmt_price(t['sl'])} {sl_warning} | TP1–TP4={tp_checks} | Live P/L={round(live_pl, 2)} {tp_warning}")
 
-    for t in open_trades:
-        tick = mt5.symbol_info_tick(t["symbol"])
-        current_price = tick.ask if t["direction"] == "BUY" else tick.bid
-        pl = (current_price - t["entry"]) * (1 if t["direction"] == "BUY" else -1)
-
-        caution = " ⚠️" if (t["direction"] == "BUY" and current_price <= t["sl"] * 1.001) or \
-                           (t["direction"] == "SELL" and current_price >= t["sl"] * 0.999) else ""
-
-        tp_warning = ""
-        if abs(t["tps"][2] - current_price) > abs(t["entry"] * 0.02):  # TP3 too far
-            tp_warning = " ⚡TP3/4 may be unrealistic"
-
-        print(f"{t['symbol']} {t['direction']} | Entry={t['entry']} | Now={current_price} | SL={t['sl']}{caution} | TP1–TP4={t['tps']} | Live P/L={pl:.2f}{tp_warning}")
-
-def log_trade(trade, status):
-    df = pd.DataFrame([{
-        "Time": datetime.now(),
-        "Symbol": trade["symbol"],
-        "Direction": trade["direction"],
-        "Entry": trade["entry"],
-        "TPs": trade["tps"],
-        "SL": trade["sl"],
-        "Status": status
-    }])
-    df.to_csv(LOG_FILE, mode="a", header=not pd.io.common.file_exists(LOG_FILE), index=False)
-
-# ===============================
-# MAIN LOOP
-# ===============================
-def run_bot(live=False):
-    if not mt5.initialize():
-        print("[ERROR] MT5 initialize failed")
-        return
-
-    account_info = mt5.account_info()
-    balance = account_info.balance if account_info else 100000
-
-    open_trades = []
-    closed_trades = []
-
+# ----------------- MAIN LOOP -----------------
+def run_bot():
     while True:
-        for pair in PAIRS:
-            direction = "BUY"  # <== strategy signal placeholder
-            trade = open_trade(pair, direction, live)
-            open_trades.append(trade)
-            log_trade(trade, "OPEN")
+        display_dashboard()
+        time.sleep(UPDATE_INTERVAL)
 
-        display_dashboard(open_trades, closed_trades, balance, live)
-        time.sleep(10)  # refresh
+# ----------------- EXAMPLE INITIAL TRADES -----------------
+for pair in PAIRS:
+    open_trade(pair, 'BUY')  # For demo, all BUY trades
 
-if __name__ == "__main__":
-    mode = input("Start in live mode? (y/n): ").lower()
-    live = True if mode == "y" else False
-    run_bot(live)
+run_bot()
