@@ -39,7 +39,7 @@ jobs:
 
       - name: Create GitHub Release
         id: create_release
-        uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b
+        uses: ncipollo/release-action@98d25d4189e9b6cee19b8635b1ea5cc39c158a41
         with:
           tag: v${{ github.run_number }}
           name: SignalBotXL v${{ github.run_number }}
