@@ -6,6 +6,9 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-release:
     runs-on: windows-latest
@@ -25,31 +28,34 @@ jobs:
           pip install pyinstaller numpy pandas yfinance MetaTrader5 pyttsx3
 
       - name: Build EXE
+        shell: pwsh
         run: |
           pyinstaller --onefile --noconsole `
-          --hidden-import=numpy `
-          --hidden-import=numpy._globals `
-          --hidden-import=numpy._distributor_init `
-          --hidden-import=MetaTrader5 `
-          --hidden-import=pandas `
-          --hidden-import=yfinance `
-          --hidden-import=pyttsx3 `
-          main.py
-
+            --name SignalBotXL `
+            --hidden-import=numpy `
+            --hidden-import=numpy._globals `
+            --hidden-import=numpy._distributor_init `
+            --hidden-import=MetaTrader5 `
+            --hidden-import=pandas `
+            --hidden-import=yfinance `
+            --hidden-import=pyttsx3 `
+            main.py
 
       - name: Create GitHub Release
         id: create_release
-        uses: ncipollo/release-action@98d25d4189e9b6cee19b8635b1ea5cc39c158a41
+        uses: ncipollo/release-action@98d25d4189e9b6cee19b8635b1ea5cc39c158a4
         with:
           tag: v${{ github.run_number }}
           name: SignalBotXL v${{ github.run_number }}
           body: "Automated release of SignalBotXL EXE"
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
-          files: dist/main.exe
+          files: dist/SignalBotXL.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
