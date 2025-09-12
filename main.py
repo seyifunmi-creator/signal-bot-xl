@@ -113,16 +113,21 @@ def check_trades():
             logging.info(f"SL moved to break-even for {trade['pair']}")
 
 # ------------------ DASHBOARD ------------------
-def display_dashboard():
-    print(f"=== Dashboard ===")
-    mode_str = 'TEST' if TEST_MODE else 'LIVE'
-    print(f"Mode: {mode_str} | Active trades: {len(active_trades)} | Closed trades: {len(closed_trades)} | Balance: {account_info.balance}")
-    for t in active_trades:
-        pl_color = '\033[92m' if t['live_pl']>0 else '\033[91m'
-        tp_warning = ' ⚡TP3/4 may be unrealistic' if abs(t['tp'][2]-t['entry'])>2*FOREX_TP[0] else ''
-        sl_warning = ' ⚠️' if abs(t['sl'] - get_current_price(t['pair'])) < 0.0005 else ''
-        print(f"{pl_color}{t['pair']} {t['direction']} | Entry={t['entry']} | Now={get_current_price(t['pair'])} | SL={t['sl']}{sl_warning} | TP1–TP4={t['tp']}{tp_warning} | Live P/L={t['live_pl']}␀
-        33[0m")
+def display_dashboard(trades):
+    print("\n=== Dashboard ===")
+    print(f"Mode: {'LIVE' if LIVE_MODE else 'TEST'} | Active trades: {len(trades)} | Balance: {get_account_balance():.2f}")
+    for t in trades:
+        sl_warning = " ⚠️" if t.get('sl_alert') else ""
+        tp_warning = " ⚡TP3/4 may be unrealistic" if t.get('tp_alert') else ""
+        pl_color = "\033[92m" if t['live_pl'] >= 0 else "\033[91m"  # green for profit, red for loss
+
+        print(
+            f"{pl_color}{t['pair']} {t['direction']} | "
+            f"Entry={t['entry']} | Now={get_current_price(t['pair']):.5f} | "
+            f"SL={t['sl']}{sl_warning} | "
+            f"TP1–TP4={t['tp']}{tp_warning} | "
+            f"Live P/L={t['live_pl']:.2f}\033[0m"
+        )
 
 #------------------ MAIN LOOP ------------------
 def run_bot():
