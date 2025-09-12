@@ -1,42 +1,53 @@
-name: Build and Release
+name: Build & Release Signal Bot EXE
 
 on:
   push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write  # required to create releases & upload assets
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-release:
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@b3498302c5c423fa896b97a26bb183df735d08f8
+        uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
 
-      - name: Set up Python
-        uses: actions/setup-python@baf43e871afa156314f91fb1d7559a1e62b24d2c
+      - name: Setup Python
+        uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller numpy pandas yfinance MetaTrader5 pyttsx3
 
-      - name: Install dependencies
+      - name: Build EXE
         run: |
-         pip install yfinance pandas MetaTrader5 flask pyinstaller
+          pyinstaller --onefile --noconsole ^
+          --hidden-import=numpy ^
+          --hidden-import=numpy._globals ^
+          --hidden-import=numpy._distributor_init ^
+          --hidden-import=MetaTrader5 ^
+          --hidden-import=pandas ^
+          --hidden-import=yfinance ^
+          --hidden-import=pyttsx3 ^
+          main.py
 
-      - name: Build executable (console mode for debugging)
-        run: |
-          pyinstaller --onefile main.py
+      - name: Create GitHub Release
+        id: create_release
+        uses: ncipollo/release-action@1c89adf39833729d8f85a31ccbc451b078733c80
+        with:
+          tag: v${{ github.run_number }}
+          name: SignalBotXL v${{ github.run_number }}
+          body: "Automated release of SignalBotXL EXE"
+          draft: false
+          prerelease: false
 
-      - name: Create Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+      - name: Upload EXE to Release
+        uses: softprops/action-gh-release@d6a100a248979d8c7ed2d5682d6b0e0208b5e8bc
         with:
           files: dist/main.exe
         env:
