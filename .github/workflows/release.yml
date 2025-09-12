@@ -26,15 +26,16 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --noconsole ^
-          --hidden-import=numpy ^
-          --hidden-import=numpy._globals ^
-          --hidden-import=numpy._distributor_init ^
-          --hidden-import=MetaTrader5 ^
-          --hidden-import=pandas ^
-          --hidden-import=yfinance ^
-          --hidden-import=pyttsx3 ^
+          pyinstaller --onefile --noconsole `
+          --hidden-import=numpy `
+          --hidden-import=numpy._globals `
+          --hidden-import=numpy._distributor_init `
+          --hidden-import=MetaTrader5 `
+          --hidden-import=pandas `
+          --hidden-import=yfinance `
+          --hidden-import=pyttsx3 `
           main.py
+
 
       - name: Create GitHub Release
         id: create_release
