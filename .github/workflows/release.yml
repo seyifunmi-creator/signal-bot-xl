@@ -30,6 +30,8 @@ jobs:
       - name: Build EXE
         shell: pwsh
         run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller numpy pandas yfinance MetaTrader5 pyttsx3
           python -m pyinstaller --onefile --noconsole `
             --name SignalBotXL `
             --hidden-import=numpy `
@@ -39,7 +41,8 @@ jobs:
             --hidden-import=pandas `
             --hidden-import=yfinance `
             --hidden-import=pyttsx3 `
-            main.py
+         main.py
+
 
 
       - name: Create GitHub Release
