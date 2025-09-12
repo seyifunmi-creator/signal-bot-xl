@@ -47,7 +47,7 @@ jobs:
           prerelease: false
 
       - name: Upload EXE to Release
-        uses: softprops/action-gh-release@d6a100a248979d8c7ed2d5682d6b0e0208b5e8bc
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
           files: dist/main.exe
         env:
