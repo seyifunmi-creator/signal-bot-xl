@@ -1,50 +1,42 @@
-import yfinance as yf
+import MetaTrader5 as mt5
 import pandas as pd
 
-# === Signal Generation ===
-def fetch_data(symbol, period="1d", interval="5m"):
+# --- Signal Generation Settings ---
+EMA_FAST = 5
+EMA_SLOW = 12
+
+# --- Helper Functions ---
+def get_historical_data(pair, n=100, timeframe=mt5.TIMEFRAME_H1):
     """
-    Fetch OHLC data from Yahoo Finance.
+    Fetch last n candles from MT5.
+    Returns a DataFrame with columns: time, open, high, low, close, tick_volume.
     """
-    try:
-        data = yf.download(symbol, period=period, interval=interval, progress=False)
-        if data.empty:
-            return None
-        return data
-    except Exception as e:
-        print(f"[ERROR] Failed to fetch data for {symbol}: {e}")
+    rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
+    if rates is None:
+        return pd.DataFrame()
+    df = pd.DataFrame(rates)
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    return df
+
+def calculate_ema(df, period):
+    return df['close'].ewm(span=period, adjust=False).mean()
+
+def generate_signal(pair):
+    """
+    Simple EMA crossover signal:
+    - BUY if EMA_FAST crosses above EMA_SLOW
+    - SELL if EMA_FAST crosses below EMA_SLOW
+    """
+    df = get_historical_data(pair)
+    if df.empty or len(df) < EMA_SLOW:
         return None
 
-def calculate_indicators(data):
-    """
-    Add EMA and RSI indicators to dataframe.
-    """
-    data["EMA5"] = data["Close"].ewm(span=5, adjust=False).mean()
-    data["EMA20"] = data["Close"].ewm(span=20, adjust=False).mean()
+    df['EMA_FAST'] = calculate_ema(df, EMA_FAST)
+    df['EMA_SLOW'] = calculate_ema(df, EMA_SLOW)
 
-    # RSI
-    delta = data["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss
-    data["RSI"] = 100 - (100 / (1 + rs))
-
-    return data
-
-def generate_signal(symbol):
-    """
-    Generate buy/sell/hold signal based on EMA crossover + RSI filter.
-    """
-    data = fetch_data(symbol)
-    if data is None:
-        return None
-
-    data = calculate_indicators(data)
-    latest = data.iloc[-1]
-
-    if latest["EMA5"] > latest["EMA20"] and latest["RSI"] > 50:
+    if df['EMA_FAST'].iloc[-2] < df['EMA_SLOW'].iloc[-2] and df['EMA_FAST'].iloc[-1] > df['EMA_SLOW'].iloc[-1]:
         return "BUY"
-    elif latest["EMA5"] < latest["EMA20"] and latest["RSI"] < 50:
+    elif df['EMA_FAST'].iloc[-2] > df['EMA_SLOW'].iloc[-2] and df['EMA_FAST'].iloc[-1] < df['EMA_SLOW'].iloc[-1]:
         return "SELL"
     else:
-        return "HOLD"
+        return None
