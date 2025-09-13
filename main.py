@@ -1,148 +1,88 @@
 import MetaTrader5 as mt5
+import pandas as pd
+import yfinance as yf
 import time
 from datetime import datetime
-import logging
-import pytz
 
-# ------------------ CONFIG ------------------
+# --- Configuration ---
 PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCAD', 'XAUUSD']
-FOREX_TP = [30, 60, 90, 120]  # in pips
-FOREX_SL = 50
-GOLD_TP = [50, 100, 150, 200]
-GOLD_SL = 70
+TP_VALUES = {'FOREX': [30, 30, 30, 30], 'GOLD': [50, 50, 50, 50]}
+SL_VALUES = {'FOREX': 50, 'GOLD': 70}
 UPDATE_INTERVAL = 60  # seconds
-XAU_UPDATE_INTERVAL = 30
-LOG_FILE = 'trade_log.txt'
-RISK_PERCENT = 1  # percent of balance per trade
-TEST_MODE = True
 
-# ------------------ LOGGING ------------------
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
-                    format='%(asctime)s | %(levelname)s | %(message)s')
-
-# ------------------ MT5 CONNECTION ------------------
-if not mt5.initialize():
-    logging.error("MT5 initialization failed")
-    raise SystemExit
-
-account_info = mt5.account_info()
-logging.info(f"Connected to MT5 Account: {account_info.login} | Balance: {account_info.balance}")
-
-# ------------------ UTILS ------------------
-def pips_to_price(pair, pips):
-    if pair == 'XAUUSD':
-        return pips  # already in price points
-    else:
-        if 'JPY' in pair:
-            return pips / 100
-        else:
-            return pips / 10000
-
-
-def get_tp_sl(pair, entry, direction):
-    if pair == 'XAUUSD':
-        tp_list = [entry + (t if direction == 'BUY' else -t) for t in GOLD_TP]
-        sl = entry - GOLD_SL if direction == 'BUY' else entry + GOLD_SL
-    else:
-        tp_list = [entry + (t if direction == 'BUY' else -t) for t in FOREX_TP]
-        sl = entry - FOREX_SL if direction == 'BUY' else entry + FOREX_SL
-    return tp_list, sl
-
-
-def get_current_price(pair):
-    tick = mt5.symbol_info_tick(pair)
-    if tick:
-        return tick.bid if tick.bid else tick.ask
-    return None
-
-# ------------------ TRADE MANAGEMENT ------------------
+# --- Global Trade Tracking ---
 active_trades = []
 closed_trades = []
 
+# --- Helper Functions ---
+def get_current_price(pair):
+    try:
+        tick = mt5.symbol_info_tick(pair)
+        if tick is not None:
+            return tick.bid
+        return 0.0
+    except Exception:
+        return 0.0
 
-def open_trade(pair, direction, lot):
-    entry_price = get_current_price(pair)
-    if entry_price is None:
-        logging.error(f"Price fetch failed for {pair}")
-        return
-    tp_list, sl = get_tp_sl(pair, entry_price, direction)
-    trade = {
-        'pair': pair,
-        'direction': direction,
-        'entry': entry_price,
-        'lot': lot,
-        'tp': tp_list,
-        'sl': sl,
-        'live_pl': 0.0,
-        'partial_tp_hits': [False]*4
-    }
-    active_trades.append(trade)
-    logging.info(f"Opened {direction} trade for {pair} @ {entry_price} | TP1–TP4={tp_list} | SL={sl}")
+def calculate_tp_sl(entry, pair_type='FOREX'):
+    tp = TP_VALUES[pair_type]
+    sl = SL_VALUES[pair_type]
+    tps = [round(entry + t*0.0001 if pair_type != 'GOLD' else entry + t, 5) for t in tp]
+    sl_val = round(entry - (sl*0.0001 if pair_type != 'GOLD' else sl), 5)
+    return tps, sl_val
 
+def check_tp_reached(trade, current_price):
+    reached = []
+    for idx, tp in enumerate(trade['tp']):
+        if (trade['direction'] == 'BUY' and current_price >= tp) or (trade['direction'] == 'SELL' and current_price <= tp):
+            reached.append(idx+1)
+    return reached
 
-def calculate_pl(trade):
-    current = get_current_price(trade['pair'])
-    if current is None:
-        return 0
+def update_live_pl(trade, current_price):
     if trade['direction'] == 'BUY':
-        pl = (current - trade['entry']) * (100 if 'JPY' in trade['pair'] else 10000) * trade['lot']
+        return round((current_price - trade['entry'])*trade['lot_size']*100000, 2)
     else:
-        pl = (trade['entry'] - current) * (100 if 'JPY' in trade['pair'] else 10000) * trade['lot']
-    trade['live_pl'] = pl
-    return pl
+        return round((trade['entry'] - current_price)*trade['lot_size']*100000, 2)
 
+def fmt_price(val):
+    return f"{val:.5f}" if isinstance(val, float) else str(val)
 
-def check_trades():
-    for trade in active_trades[:]:
-        pl = calculate_pl(trade)
-        # Partial TP checks
-        for i, tp_price in enumerate(trade['tp']):
-            if not trade['partial_tp_hits'][i]:
-                if (trade['direction'] == 'BUY' and get_current_price(trade['pair']) >= tp_price) or \
-                   (trade['direction'] == 'SELL' and get_current_price(trade['pair']) <= tp_price):
-                    trade['partial_tp_hits'][i] = True
-                    logging.info(f"Partial TP{i+1} hit for {trade['pair']} | Current P/L={pl}")
-        # SL warning
-        if (trade['direction'] == 'BUY' and get_current_price(trade['pair']) <= trade['sl'] + 0.0005) or \
-           (trade['direction'] == 'SELL' and get_current_price(trade['pair']) >= trade['sl'] - 0.0005):
-            logging.warning(f"⚠️ SL approaching for {trade['pair']} | Current P/L={pl}")
-        # Break-even
-        half_tp = trade['tp'][0] / 2 if trade['direction']=='BUY' else trade['entry'] - trade['tp'][0]/2
-        if pl >= half_tp:
-            trade['sl'] = trade['entry']  # move SL to break-even
-            logging.info(f"SL moved to break-even for {trade['pair']}")
+def display_dashboard():
+    print(f"=== Dashboard ===\nMode: TEST | Active trades: {len(active_trades)} | Closed trades: {len(closed_trades)} | Balance: {mt5.account_info().balance if mt5.initialize() else 0}")
+    for t in active_trades:
+        current_price = get_current_price(t['pair'])
+        live_pl = update_live_pl(t, current_price)
+        tps_reached = check_tp_reached(t, current_price)
+        sl_warning = ' ⚠️' if (t['direction']=='BUY' and current_price <= t['sl']+0.0001) or (t['direction']=='SELL' and current_price >= t['sl']-0.0001) else ''
+        tp_warning = ' ⚡TP3/4 may be unrealistic' if t['pair']=='XAUUSD' and max(t['tp'])-current_price>50 else ''
+        t['live_pl'] = live_pl
+        print(f"{t['pair']} {t['direction']} | Entry={fmt_price(t['entry'])} | Now={fmt_price(current_price)} | SL={fmt_price(t['sl'])}{sl_warning} | TP1–TP4={[fmt_price(x) for x in t['tp']]}{tp_warning} | Live P/L={live_pl} | TP reached: {tps_reached}")
 
-# ------------------ DASHBOARD ------------------
-def display_dashboard(trades):
-    print("\n=== Dashboard ===")
-    print(f"Mode: {'LIVE' if LIVE_MODE else 'TEST'} | Active trades: {len(trades)} | Balance: {get_account_balance():.2f}")
-    for t in trades:
-        sl_warning = " ⚠️" if t.get('sl_alert') else ""
-        tp_warning = " ⚡TP3/4 may be unrealistic" if t.get('tp_alert') else ""
-        pl_color = "\033[92m" if t['live_pl'] >= 0 else "\033[91m"  # green for profit, red for loss
-
-        print(
-            f"{pl_color}{t['pair']} {t['direction']} | "
-            f"Entry={t['entry']} | Now={get_current_price(t['pair']):.5f} | "
-            f"SL={t['sl']}{sl_warning} | "
-            f"TP1–TP4={t['tp']}{tp_warning} | "
-            f"Live P/L={t['live_pl']:.2f}\033[0m"
-        )
-
-#------------------ MAIN LOOP ------------------
+# --- Main Bot Loop ---
 def run_bot():
+    if not mt5.initialize():
+        print("[ERROR] MT5 connection failed")
+        return
+    print(f"[INFO] Connected to MT5 Account: {mt5.account_info().login} | Balance: {mt5.account_info().balance}")
+
+    # Initialize dummy trades for simulation
+    for pair in PAIRS:
+        entry_price = get_current_price(pair)
+        pair_type = 'GOLD' if pair=='XAUUSD' else 'FOREX'
+        tps, sl_val = calculate_tp_sl(entry_price, pair_type)
+        active_trades.append({
+            'pair': pair,
+            'direction': 'BUY',
+            'entry': entry_price,
+            'tp': tps,
+            'sl': sl_val,
+            'lot_size': 0.1,
+            'live_pl': 0.0
+        })
+
     while True:
-        check_trades()
         display_dashboard()
         time.sleep(UPDATE_INTERVAL)
 
-
-# ------------------ START ------------------
 if __name__ == '__main__':
-    mode = input("Start in live mode? (y/n): ")
-    TEST_MODE = True if mode.lower() == 'n' else False
-    logging.info(f"Starting in {'TEST' if TEST_MODE else 'LIVE'} MODE")
-    # Example trade open simulation
-    for pair in PAIRS:
-        open_trade(pair, 'BUY', lot=0.1)
-    run_bot()        
+    run_bot()
