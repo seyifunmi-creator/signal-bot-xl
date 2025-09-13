@@ -1,13 +1,14 @@
 name: Build & Release Signal Bot EXE
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       tag:
         description: 'Tag for release'
         required: true
-permissions:
-  contents: write
 
 jobs:
   build-release:
@@ -15,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
+        uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410  # v3 SHA
 
       - name: Setup Python
-        uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
+        uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4  # v4 SHA
         with:
           python-version: 3.11
 
@@ -30,9 +31,7 @@ jobs:
       - name: Build EXE
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller numpy pandas yfinance MetaTrader5 pyttsx3
-          python -m PyInstaller --onefile --noconsole `
+          python -m pyinstaller --onefile --noconsole `
             --name SignalBotXL `
             --hidden-import=numpy `
             --hidden-import=numpy._globals `
@@ -43,30 +42,18 @@ jobs:
             --hidden-import=pyttsx3 `
             main.py
 
-      - name: Create Git tag
-        run: |
-         git config user.name "GitHub Actions"
-         git config user.email "actions@github.com"
-         git tag v${{ github.run_number }}
-         git push origin v${{ github.run_number }}
-
-
-
       - name: Create GitHub Release
         id: create_release
-        uses: ncipollo/release-action@571fe81601851fa6dd2c39ba301770d469755124
+        uses: ncipollo/release-action@571fe81601851fa6dd2c39ba301770d469755124  # v1 SHA
         with:
           tag: ${{ github.event.inputs.tag }}
           name: SignalBotXL ${{ github.event.inputs.tag }}
           body: "Automated release of SignalBotXL EXE"
-
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload EXE to Release
-        uses: softprops/action-gh-release@395b9cc843596f4cb39930e20c57d2260a09c469
+        uses: softprops/action-gh-release@395b9cc843596f4cb39930e20c57d2260a09c469  # v1 SHA
         with:
           files: dist/SignalBotXL.exe
         env:
