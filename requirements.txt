@@ -1,3 +1,4 @@
-yfinance
+MetaTrader5
 pandas
-numpy
+yfinance
+pyttsx3
