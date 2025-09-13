@@ -1,11 +1,11 @@
 name: Build & Release Signal Bot EXE
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
-
+    inputs:
+      tag:
+        description: 'Tag for release'
+        required: true
 permissions:
   contents: write
 
@@ -56,9 +56,10 @@ jobs:
         id: create_release
         uses: ncipollo/release-action@571fe81601851fa6dd2c39ba301770d469755124
         with:
-          tag: v${{ github.run_number }}
-          name: SignalBotXL v${{ github.run_number }}
+          tag: ${{ github.event.inputs.tag }}
+          name: SignalBotXL ${{ github.event.inputs.tag }}
           body: "Automated release of SignalBotXL EXE"
+
           draft: false
           prerelease: false
         env:
