@@ -1,12 +1,14 @@
+name: Build and Release main.exe
+
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag for release"
+        description: 'Tag for release (e.g., v2.4.0)'
         required: true
 
 jobs:
-  build-release:
+  build:
     runs-on: windows-latest
 
     steps:
@@ -25,19 +27,20 @@ jobs:
 
       - name: Build EXE
         run: |
-          python -m pyinstaller --onefile --noconsole --name SignalBotXL main.py
+          python -m pyinstaller --onefile --noconsole --name main main.py
 
       - name: Create GitHub Release
-        id: create_release
         uses: ncipollo/release-action@98d25d4189e9b6cee19b8635b1ea5cc39c158a41
         with:
           tag: ${{ github.event.inputs.tag }}
-          name: SignalBotXL v${{ github.event.inputs.tag }}
-          body: "Automated release of SignalBotXL EXE"
+          name: "main.exe Release ${{ github.event.inputs.tag }}"
+          body: "Automated build of main.exe"
+          draft: false
+          prerelease: false
 
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
-          files: dist/SignalBotXL.exe
+          files: dist/main.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
