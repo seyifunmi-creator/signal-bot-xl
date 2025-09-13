@@ -28,7 +28,7 @@ jobs:
           pyinstaller --onefile main.py --name "main"
 
       - name: Upload main.exe to Release
-        uses: softprops/action-gh-release@de2c0eb89ae2c0d6a8628f5657a2c8dc0d58a1dc
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
           files: dist/main.exe
         env:
