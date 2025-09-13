@@ -2,3 +2,4 @@ MetaTrader5
 pandas
 yfinance
 pyttsx3
+colorama
