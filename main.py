@@ -7,7 +7,7 @@ from dashboard import display_dashboard
 from datetime import datetime
 
 def run_bot():
-    # === Read config values and print them ===
+    # === Print config settings at startup ===
     print(f"Bot starting in {config.MODE} mode...")
     print(f"Trading pairs: {config.PAIRS}")
     print(f"Lot size: {config.LOT_SIZE}")
@@ -32,7 +32,7 @@ def run_bot():
         print(f"\n[INFO] Cycle started at {datetime.now().strftime('%H:%M:%S')}")
 
         for pair in config.PAIRS:
-            # 1. Generate signal
+            # 1. Generate signal using MT5 prices
             signal = generate_signal(pair)
             print(f"[SIGNAL] {pair}: {signal}")
 
