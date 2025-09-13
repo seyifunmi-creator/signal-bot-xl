@@ -1,45 +1,34 @@
-name: Build and Release main.exe
+name: Build and Release Bot
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag for release (e.g., v2.4.0)'
-        required: true
+  release:
+    types: [created]
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@b08ff587957b579b5a55d21fd28f63d7e10b9410
+      - name: Checkout code
+        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
 
-      - name: Setup Python
-        uses: actions/setup-python@d6ebc25835d46a080edf7d8a53db5f361d8f59e4
+      - name: Set up Python
+        uses: actions/setup-python@61a6322f88396a6271a6ee3565807d608ecaddd1
         with:
           python-version: 3.11
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pandas yfinance MetaTrader5 pyttsx3
+          pip install -r requirements.txt
+          pip install pyinstaller
 
-      - name: Build EXE
+      - name: Build main.exe
         run: |
-          python -m pyinstaller --onefile --noconsole --name main main.py
+          pyinstaller --onefile main.py --name "main"
 
-      - name: Create GitHub Release
-        uses: ncipollo/release-action@98d25d4189e9b6cee19b8635b1ea5cc39c158a41
-        with:
-          tag: ${{ github.event.inputs.tag }}
-          name: "main.exe Release ${{ github.event.inputs.tag }}"
-          body: "Automated build of main.exe"
-          draft: false
-          prerelease: false
-
-      - name: Upload EXE to Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+      - name: Upload main.exe to Release
+        uses: softprops/action-gh-release@de2c0eb89ae2c0d6a8628f5657a2c8dc0d58a1dc
         with:
           files: dist/main.exe
         env:
