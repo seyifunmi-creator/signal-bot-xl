@@ -1,84 +1,74 @@
 # trades.py
+
 import time
-import MetaTrader5 as mt5
-from datetime import datetime
-import config
 
-# Global trade storage
-active_trades = []
-closed_trades = []
-
-def get_price(pair):
-    """Fetch live price from MT5 or return 0 if fail"""
-    try:
-        tick = mt5.symbol_info_tick(pair)
-        if tick:
-            return tick.bid
-    except:
-        return 0.0
-    return 0.0
-
-
-def open_trade(pair, direction, entry, tp_list, sl, lot=None):
-    """Register a new trade (TEST or LIVE)."""
-    trade = {
-        "pair": pair,
-        "direction": direction,
-        "entry": entry,
-        "tp": tp_list,
-        "sl": sl,
-        "lot_size": lot if lot else config.LOT_SIZE,
-        "status": "OPEN",
-        "tp_hit": [],
-        "opened": datetime.now(),
-        "closed": None,
-        "live_pl": 0.0
+def create_trade(pair, direction, entry, tp_levels, sl, lot_size=0.1):
+    """Create a new trade dictionary."""
+    return {
+        'pair': pair,
+        'direction': direction,
+        'entry': entry,
+        'tp': tp_levels,          # list of 4 TP levels
+        'sl': sl,
+        'lot_size': lot_size,
+        'live_pl': 0.0,
+        'tp_hit': [False, False, False, False],
+        'status': "ACTIVE",
+        'opened_at': time.strftime("%Y-%m-%d %H:%M:%S")
     }
-    active_trades.append(trade)
-    return trade
 
 
-def update_trade(trade):
-    """Update trade state (P/L, TP, SL, BE, partial closes)."""
-    current_price = get_price(trade["pair"])
-    if not current_price:
-        return
+def update_trades(active_trades, current_prices):
+    """Update all active trades with current prices, BE + partial closes."""
+    closed_trades = []
 
-    # Update live P/L
-    if trade["direction"] == "BUY":
-        trade["live_pl"] = round((current_price - trade["entry"]) * trade["lot_size"] * 100000, 2)
-    else:
-        trade["live_pl"] = round((trade["entry"] - current_price) * trade["lot_size"] * 100000, 2)
+    for trade in active_trades[:]:  # copy since we may remove trades
+        pair = trade['pair']
+        price = current_prices.get(pair, None)
+        if price is None:
+            continue
 
-    # Check TP hits
-    for idx, tp in enumerate(trade["tp"]):
-        if idx+1 not in trade["tp_hit"]:
-            if (trade["direction"] == "BUY" and current_price >= tp) or \
-               (trade["direction"] == "SELL" and current_price <= tp):
+        direction = trade['direction']
+        entry = trade['entry']
+        sl = trade['sl']
+        tp_levels = trade['tp']
+        lot = trade['lot_size']
 
-                trade["tp_hit"].append(idx+1)
+        # --- Update Live P/L ---
+        if direction == "BUY":
+            trade['live_pl'] = round((price - entry) * lot * 100000, 2)
+        else:
+            trade['live_pl'] = round((entry - price) * lot * 100000, 2)
 
-                # Partial close at TP1
-                if idx+1 == 1:
-                    trade["lot_size"] = trade["lot_size"] / 2  # close half
-                    print(f"[TRADE] Partial close at TP1 for {trade['pair']}")
+        # --- Check TP hits ---
+        hit_tps = []
+        for i, tp in enumerate(tp_levels):
+            if direction == "BUY" and price >= tp and not trade['tp_hit'][i]:
+                trade['tp_hit'][i] = True
+                hit_tps.append(i+1)
+            elif direction == "SELL" and price <= tp and not trade['tp_hit'][i]:
+                trade['tp_hit'][i] = True
+                hit_tps.append(i+1)
 
-                # Move SL to BE at TP2
-                if idx+1 == 2:
-                    trade["sl"] = trade["entry"]
-                    print(f"[TRADE] SL moved to BE at TP2 for {trade['pair']}")
+        # --- Partial close + BE logic ---
+        if 1 in hit_tps:  # TP1 hit → partial close
+            trade['lot_size'] = round(lot / 2, 2) if lot > 0.01 else lot
+            trade['status'] = "PARTIAL"
 
-    # Stop-loss check
-    if (trade["direction"] == "BUY" and current_price <= trade["sl"]) or \
-       (trade["direction"] == "SELL" and current_price >= trade["sl"]):
-        trade["status"] = "CLOSED"
-        trade["closed"] = datetime.now()
-        closed_trades.append(trade)
-        active_trades.remove(trade)
-        print(f"[TRADE] {trade['pair']} stopped out at SL")
+        if 2 in hit_tps:  # TP2 hit → move SL to BE
+            trade['sl'] = entry
+            trade['status'] = "BE ACTIVE"
 
+        # --- Close at SL or TP4 ---
+        if (direction == "BUY" and price <= trade['sl']) or \
+           (direction == "SELL" and price >= trade['sl']):
+            trade['status'] = "STOPPED"
+            closed_trades.append(trade)
+            active_trades.remove(trade)
 
-def update_all_trades():
-    """Loop over active trades and update them"""
-    for trade in active_trades[:]:  # copy so we can modify list
-        update_trade(trade)
+        elif trade['tp_hit'][3]:  # TP4 hit → close trade fully
+            trade['status'] = "TP4 HIT"
+            closed_trades.append(trade)
+            active_trades.remove(trade)
+
+    return closed_trades
