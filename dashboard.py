@@ -1,40 +1,54 @@
-# dashboard.py
+# signals.py
 
+import MetaTrader5 as mt5
+import pandas as pd
 import config
-from trades import open_trades
-from colorama import Fore, Style
 
-def show_dashboard(current_prices):
-    print("\n=== DASHBOARD ===")
-    print(f"Mode: {config.MODE}")
+# --- Strategy Settings ---
+EMA_FAST = 3
+EMA_SLOW = 6
+RSI_PERIOD = 14
 
-    active = [t for t in open_trades if t["status"] == "OPEN"]
-    closed = [t for t in open_trades if t["status"] != "OPEN"]
+def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
+    """
+    Fetch historical data from MT5
+    """
+    rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
+    if rates is None:
+        return None
+    df = pd.DataFrame(rates)
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    df.set_index('time', inplace=True)
+    return df
 
-    print(f"Active trades: {len(active)} | Closed trades: {len(closed)}")
+def generate_signal(pair):
+    """
+    Generate BUY / SELL / None signal using EMA crossover + RSI filter
+    """
+    df = get_data(pair)
+    if df is None or len(df) < RSI_PERIOD:
+        return None
 
-    for trade in open_trades:
-        pair = trade["pair"]
-        status = trade["status"]
-        price = current_prices.get(pair, None)
+    # Calculate EMAs
+    df['ema_fast'] = df['close'].ewm(span=EMA_FAST).mean()
+    df['ema_slow'] = df['close'].ewm(span=EMA_SLOW).mean()
 
-        # Floating P/L for TEST mode
-        if config.MODE == "TEST" and price:
-            if trade["direction"] == "BUY":
-                pnl = (price - trade["entry"]) * 10000 * trade["lot"]
-            else:
-                pnl = (trade["entry"] - price) * 10000 * trade["lot"]
-        else:
-            pnl = 0
+    # Calculate RSI
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(RSI_PERIOD).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(RSI_PERIOD).mean()
+    rs = gain / loss
+    df['rsi'] = 100 - (100 / (1 + rs))
 
-        # Status coloring
-        if status == "OPEN":
-            status_str = Fore.YELLOW + "OPEN" + Style.RESET_ALL
-        elif status == "CLOSED_TP3":
-            status_str = Fore.GREEN + "TP3 CLOSED" + Style.RESET_ALL
-        elif status == "CLOSED_SL":
-            status_str = Fore.RED + "STOP LOSS" + Style.RESET_ALL
-        else:
-            status_str = Fore.CYAN + status + Style.RESET_ALL
+    # Latest values
+    ema_fast = df['ema_fast'].iloc[-1]
+    ema_slow = df['ema_slow'].iloc[-1]
+    rsi = df['rsi'].iloc[-1]
 
-        print(f"{pair} | {trade['direction']} | {status_str} | Entry: {trade['entry']:.5f} | SL: {trade['sl']:.5f} | TP1: {trade['tp1']:.5f} | TP2: {trade['tp2']:.5f} | TP3: {trade['tp3']:.5f} | P/L: {pnl:.2f}")
+    # Signal rules
+    if ema_fast > ema_slow and rsi > 50:
+        return "BUY"
+    elif ema_fast < ema_slow and rsi < 50:
+        return "SELL"
+    else:
+        return None
