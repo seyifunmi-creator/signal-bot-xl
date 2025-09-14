@@ -1,26 +1,40 @@
-from colorama import Fore, Style, init
-from trades import active_trades, closed_trades
-from config import MODE
+# dashboard.py
 
-init(autoreset=True)
+import config
+from trades import open_trades
+from colorama import Fore, Style
 
-def fmt_price(val):
-    return f"{val:.5f}" if isinstance(val, float) else str(val)
+def show_dashboard(current_prices):
+    print("\n=== DASHBOARD ===")
+    print(f"Mode: {config.MODE}")
 
-def display_dashboard():
-    print(Fore.CYAN + "\n=== DASHBOARD ===")
-    print(f"Mode: {Fore.YELLOW}{MODE}{Style.RESET_ALL} | "
-          f"Active trades: {len(active_trades)} | "
-          f"Closed trades: {len(closed_trades)}")
+    active = [t for t in open_trades if t["status"] == "OPEN"]
+    closed = [t for t in open_trades if t["status"] != "OPEN"]
 
-    if not active_trades:
-        print(Fore.LIGHTBLACK_EX + "No active trades.")
-        return
+    print(f"Active trades: {len(active)} | Closed trades: {len(closed)}")
 
-    for t in active_trades:
-        color = Fore.GREEN if t["direction"] == "BUY" else Fore.RED
-        print(color + f"{t['pair']} {t['direction']} | "
-              f"Entry={fmt_price(t['entry'])} | "
-              f"SL={fmt_price(t['sl'])} | "
-              f"TPs={[fmt_price(x) for x in t['tp']]} | "
-              f"Live P/L={t['pnl']} | Status={t['status']}")
+    for trade in open_trades:
+        pair = trade["pair"]
+        status = trade["status"]
+        price = current_prices.get(pair, None)
+
+        # Floating P/L for TEST mode
+        if config.MODE == "TEST" and price:
+            if trade["direction"] == "BUY":
+                pnl = (price - trade["entry"]) * 10000 * trade["lot"]
+            else:
+                pnl = (trade["entry"] - price) * 10000 * trade["lot"]
+        else:
+            pnl = 0
+
+        # Status coloring
+        if status == "OPEN":
+            status_str = Fore.YELLOW + "OPEN" + Style.RESET_ALL
+        elif status == "CLOSED_TP3":
+            status_str = Fore.GREEN + "TP3 CLOSED" + Style.RESET_ALL
+        elif status == "CLOSED_SL":
+            status_str = Fore.RED + "STOP LOSS" + Style.RESET_ALL
+        else:
+            status_str = Fore.CYAN + status + Style.RESET_ALL
+
+        print(f"{pair} | {trade['direction']} | {status_str} | Entry: {trade['entry']:.5f} | SL: {trade['sl']:.5f} | TP1: {trade['tp1']:.5f} | TP2: {trade['tp2']:.5f} | TP3: {trade['tp3']:.5f} | P/L: {pnl:.2f}")
