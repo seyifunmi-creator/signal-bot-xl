@@ -1,110 +1,92 @@
+# trades.py
+
 import MetaTrader5 as mt5
+import config
+import time
 import csv
-import os
-from datetime import datetime
-from config import LOT_SIZE, LOG_FILE, SL_VALUES, TP_VALUES
 
-# === Trade Handling ===
+# Store open trades in memory (for TEST mode)
+open_trades = []
 
-active_trades = []
-closed_trades = []
+def open_trade(pair, direction, entry_price):
+    """Open a trade in TEST or LIVE mode"""
 
-def calculate_tp_sl(entry, pair, direction):
-    """
-    Calculate TP and SL based on config values.
-    """
-    pair_type = "GOLD" if pair == "XAUUSD" else "FOREX"
-    tps = []
-    for t in TP_VALUES[pair_type]:
-        if direction == "BUY":
-            tps.append(round(entry + (t * 0.0001 if pair_type == "FOREX" else t), 5))
-        else:
-            tps.append(round(entry - (t * 0.0001 if pair_type == "FOREX" else t), 5))
-
-    sl_val = round(entry - (SL_VALUES[pair_type] * 0.0001 if pair_type == "FOREX" else SL_VALUES[pair_type]), 5) \
-             if direction == "BUY" else \
-             round(entry + (SL_VALUES[pair_type] * 0.0001 if pair_type == "FOREX" else SL_VALUES[pair_type]), 5)
-
-    return tps, sl_val
-
-def place_trade(pair, direction, entry):
-    """
-    Create a trade dictionary and store in active_trades.
-    """
-    tps, sl_val = calculate_tp_sl(entry, pair, direction)
+    sl = entry_price - config.SL_VALUES['FOREX'] * 0.0001 if direction == "BUY" else entry_price + config.SL_VALUES['FOREX'] * 0.0001
+    tp1 = entry_price + config.TP_VALUES['FOREX'][0] * 0.0001 if direction == "BUY" else entry_price - config.TP_VALUES['FOREX'][0] * 0.0001
+    tp2 = entry_price + config.TP_VALUES['FOREX'][1] * 0.0001 if direction == "BUY" else entry_price - config.TP_VALUES['FOREX'][1] * 0.0001
+    tp3 = entry_price + config.TP_VALUES['FOREX'][2] * 0.0001 if direction == "BUY" else entry_price - config.TP_VALUES['FOREX'][2] * 0.0001
 
     trade = {
         "pair": pair,
         "direction": direction,
-        "entry": entry,
-        "tp": tps,
-        "sl": sl_val,
-        "lot_size": LOT_SIZE,
-        "open_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "close_time": None,
+        "entry": entry_price,
+        "sl": sl,
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "lot": config.LOT_SIZE,
         "status": "OPEN",
-        "pnl": 0.0
+        "partial_closed": False,
+        "moved_to_be": False
     }
 
-    active_trades.append(trade)
-    log_trade(trade, "OPEN")
-    return trade
-
-def update_trade(trade, current_price):
-    """
-    Check if trade hit TP/SL, update P/L, and close if needed.
-    """
-    if trade["direction"] == "BUY":
-        pnl = (current_price - trade["entry"]) * trade["lot_size"] * 100000
+    if config.MODE == "TEST":
+        open_trades.append(trade)
+        print(f"[TEST TRADE OPENED] {pair} {direction} @ {entry_price:.5f} | SL: {sl:.5f} | TP1: {tp1:.5f} | TP2: {tp2:.5f} | TP3: {tp3:.5f}")
     else:
-        pnl = (trade["entry"] - current_price) * trade["lot_size"] * 100000
+        # LIVE MODE (real MT5 order)
+        order_type = mt5.ORDER_BUY if direction == "BUY" else mt5.ORDER_SELL
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": pair,
+            "volume": config.LOT_SIZE,
+            "type": order_type,
+            "price": entry_price,
+            "sl": sl,
+            "tp": tp1,  # Start with TP1
+            "deviation": 20,
+            "magic": 123456,
+            "comment": "Bot Trade",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(request)
+        print(f"[LIVE TRADE OPENED] {result}")
 
-    trade["pnl"] = round(pnl, 2)
+def update_trades(current_prices):
+    """Check open trades and apply TP/SL logic"""
+    for trade in open_trades:
+        if trade["status"] != "OPEN":
+            continue
 
-    # TP hit
-    for tp in trade["tp"]:
-        if (trade["direction"] == "BUY" and current_price >= tp) or \
-           (trade["direction"] == "SELL" and current_price <= tp):
-            trade["status"] = "CLOSED"
-            trade["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            closed_trades.append(trade)
-            active_trades.remove(trade)
-            log_trade(trade, "CLOSED")
-            return "TP"
+        price = current_prices.get(trade["pair"])
+        if price is None:
+            continue
 
-    # SL hit
-    if (trade["direction"] == "BUY" and current_price <= trade["sl"]) or \
-       (trade["direction"] == "SELL" and current_price >= trade["sl"]):
-        trade["status"] = "CLOSED"
-        trade["close_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        closed_trades.append(trade)
-        active_trades.remove(trade)
-        log_trade(trade, "CLOSED")
-        return "SL"
+        # Stop Loss hit
+        if (trade["direction"] == "BUY" and price <= trade["sl"]) or \
+           (trade["direction"] == "SELL" and price >= trade["sl"]):
+            trade["status"] = "CLOSED_SL"
+            print(f"[STOP LOSS] {trade['pair']} closed at {price:.5f}")
+            continue
 
-    return None
+        # TP1 partial close
+        if not trade["partial_closed"]:
+            if (trade["direction"] == "BUY" and price >= trade["tp1"]) or \
+               (trade["direction"] == "SELL" and price <= trade["tp1"]):
+                trade["partial_closed"] = True
+                print(f"[TP1 HIT] {trade['pair']} - Partial close at {price:.5f}")
 
-def log_trade(trade, action):
-    """
-    Log trade to CSV file.
-    """
-    file_exists = os.path.isfile(LOG_FILE)
-    with open(LOG_FILE, mode="a", newline="") as file:
-        writer = csv.writer(file)
-        if not file_exists:
-            writer.writerow([
-                "Time", "Action", "Pair", "Direction", "Entry",
-                "TPs", "SL", "Lot Size", "P/L", "Status"
-            ])
-        writer.writerow([
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            action,
-            trade["pair"],
-            trade["direction"],
-            trade["entry"],
-            trade["tp"],
-            trade["sl"],
-            trade["lot_size"],
-            trade["pnl"],
-            trade["status"]
-        ])
+        # TP2 → move SL to break-even
+        if not trade["moved_to_be"]:
+            if (trade["direction"] == "BUY" and price >= trade["tp2"]) or \
+               (trade["direction"] == "SELL" and price <= trade["tp2"]):
+                trade["sl"] = trade["entry"]  # BE
+                trade["moved_to_be"] = True
+                print(f"[TP2 HIT] {trade['pair']} - SL moved to BE")
+
+        # TP3 → full close
+        if (trade["direction"] == "BUY" and price >= trade["tp3"]) or \
+           (trade["direction"] == "SELL" and price <= trade["tp3"]):
+            trade["status"] = "CLOSED_TP3"
+            print(f"[TP3 HIT] {trade['pair']} closed at {price:.5f}")
