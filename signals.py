@@ -3,29 +3,26 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import config
-from datetime import datetime
-import os
 
 # --- Strategy Settings ---
-EMA_FAST = 3
-EMA_SLOW = 6
-RSI_PERIOD = 14
-CONFIRM_CANDLES = 2  # EMA must hold crossover for 2 consecutive candles
+EMA_FAST = config.EMA_FAST
+EMA_SLOW = config.EMA_SLOW
+RSI_PERIOD = 14  # default, can be adjusted
 
-# --- Signal Logging ---
-SIGNAL_LOG_FILE = "signal_log.csv"
-if not os.path.exists(SIGNAL_LOG_FILE):
-    with open(SIGNAL_LOG_FILE, "w") as f:
-        f.write("timestamp,pair,signal,ema_fast,ema_slow,rsi,trend_h1\n")
-
-def log_signal(pair, signal, ema_fast, ema_slow, rsi, trend_h1):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with open(SIGNAL_LOG_FILE, "a") as f:
-        f.write(f"{timestamp},{pair},{signal},{ema_fast:.5f},{ema_slow:.5f},{rsi:.2f},{trend_h1}\n")
+# Optional accuracy boost: only trade during session hours
+def in_session():
+    if not config.USE_SESSION_FILTER:
+        return True
+    from datetime import datetime
+    now = datetime.now().time()
+    start = datetime.strptime(config.SESSION_START, "%H:%M").time()
+    end = datetime.strptime(config.SESSION_END, "%H:%M").time()
+    return start <= now <= end
 
 def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
+    """Fetch historical data from MT5"""
     rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
-    if rates is None:
+    if rates is None or len(rates) == 0:
         print(f"[WARN] No data for {pair}, market may be closed.")
         return None
     df = pd.DataFrame(rates)
@@ -33,45 +30,40 @@ def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
     df.set_index('time', inplace=True)
     return df
 
-def calculate_trend(df):
-    df['ema_fast'] = df['close'].ewm(span=EMA_FAST).mean()
-    df['ema_slow'] = df['close'].ewm(span=EMA_SLOW).mean()
+def calculate_rsi(df, period=RSI_PERIOD):
     delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(RSI_PERIOD).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(RSI_PERIOD).mean().replace(0, 1e-9)
-    df['rsi'] = 100 - (100 / (1 + gain / loss))
-    return df
-
-def check_h1_trend(pair):
-    df_h1 = get_data(pair, n=100, timeframe=mt5.TIMEFRAME_H1)
-    if df_h1 is None or len(df_h1) < RSI_PERIOD:
-        return None
-    df_h1 = calculate_trend(df_h1)
-    return "BUY" if df_h1['ema_fast'].iloc[-1] > df_h1['ema_slow'].iloc[-1] else "SELL"
+    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
 def generate_signal(pair):
+    """Generate BUY / SELL / None signal using EMA crossover + RSI filter"""
+    if not in_session():
+        return None  # skip outside session if session filter is on
+
     df = get_data(pair)
-    if df is None or len(df) < RSI_PERIOD + CONFIRM_CANDLES:
+    if df is None or len(df) < max(EMA_SLOW, RSI_PERIOD):
         return None
 
-    df = calculate_trend(df)
-    ema_fast_last = df['ema_fast'].iloc[-CONFIRM_CANDLES:]
-    ema_slow_last = df['ema_slow'].iloc[-CONFIRM_CANDLES:]
+    # --- EMA calculations ---
+    df['ema_fast'] = df['close'].ewm(span=EMA_FAST, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=EMA_SLOW, adjust=False).mean()
+
+    # --- RSI calculation ---
+    df['rsi'] = calculate_rsi(df)
+
+    # --- Latest values ---
+    ema_fast = df['ema_fast'].iloc[-1]
+    ema_slow = df['ema_slow'].iloc[-1]
     rsi = df['rsi'].iloc[-1]
 
-    # Multi-candle confirmation
-    if all(ema_fast_last > ema_slow_last) and rsi > 55:
-        signal = "BUY"
-    elif all(ema_fast_last < ema_slow_last) and rsi < 45:
-        signal = "SELL"
+    # --- Signal rules ---
+    # Accuracy boost: trade only if RSI confirms trend direction
+    if ema_fast > ema_slow and rsi > 50:
+        return "BUY"
+    elif ema_fast < ema_slow and rsi < 50:
+        return "SELL"
     else:
-        signal = None
-
-    # H1 trend filter
-    trend_h1 = check_h1_trend(pair)
-    if signal and trend_h1 and signal != trend_h1:
-        signal = None  # Skip counter-trend signals
-
-    # Log signal
-    log_signal(pair, signal, df['ema_fast'].iloc[-1], df['ema_slow'].iloc[-1], rsi, trend_h1)
-    return signal
+        return None
