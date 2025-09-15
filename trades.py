@@ -15,9 +15,24 @@ def create_trade(pair, direction, lot_size):
         return None
 
     entry = tick.bid if direction == "BUY" else tick.ask
-    pair_type = "GOLD" if pair == "XAUUSD" else "FOREX"
-    tp_levels = [round(entry + (tp*0.0001 if pair_type == "FOREX" else tp), 5) for tp in config.TP_VALUES[pair_type]]
-    sl_val = round(entry - (config.SL_VALUES[pair_type]*0.0001 if pair_type == "FOREX" else config.SL_VALUES[pair_type]), 5)
+
+    # ✅ Determine pair type safely
+    if pair.upper() == "XAUUSD":
+        pair_type = "GOLD"
+    else:
+        pair_type = "FOREX"
+
+    # ✅ Pull TP/SL settings for this type
+    tp_values = config.TP_VALUES.get(pair_type, [])
+    sl_value = config.SL_VALUES.get(pair_type, 0)
+
+    # ✅ Build TP levels & SL
+    if pair_type == "FOREX":
+        tp_levels = [round(entry + (tp * 0.0001 if direction == "BUY" else -tp * 0.0001), 5) for tp in tp_values]
+        sl_val = round(entry - (sl_value * 0.0001) if direction == "BUY" else entry + (sl_value * 0.0001), 5)
+    else:  # GOLD
+        tp_levels = [round(entry + (tp if direction == "BUY" else -tp), 2) for tp in tp_values]
+        sl_val = round(entry - sl_value if direction == "BUY" else entry + sl_value, 2)
 
     trade = {
         "pair": pair,
