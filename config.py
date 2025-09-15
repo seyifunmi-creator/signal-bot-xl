@@ -6,8 +6,8 @@
 MODE = "TEST"  # or MODE = TRADE_MODE if you want it linked to TRADE_MODE
 
 # --- MT5 CONNECTION SETTINGS ---
-MT5_LOGIN = 10007528925        # Your MT5 demo account number
-MT5_PASSWORD = "_7LxJKPs"  
+MT5_LOGIN = 96548932        # Your MT5 demo account number
+MT5_PASSWORD = "@1CxWrQp"  
 MT5_SERVER = "MetaQuotes-Demo"  # e.g. "Exness-MT5Trial", "ICMarketsSC-Demo"
 
 
