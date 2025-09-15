@@ -3,12 +3,31 @@
 # main.py imports
 import time
 import config
+import MetaTrader5 as mt5
 from trades import create_trade, update_trades
 from signals import generate_signal
 from dashboard import show_dashboard
 
 
+def initialize_mt5():
+    """Initialize MT5 connection using config credentials"""
+    if not mt5.initialize(
+        login=config.MT5_LOGIN,
+        password=config.MT5_PASSWORD,
+        server=config.MT5_SERVER
+    ):
+        print("[ERROR] MT5 initialization failed")
+        print(mt5.last_error())
+        return False
+    print("[INFO] Connected to MT5 successfully")
+    return True
+
+
 def run_bot():
+    # --- Initialize MT5 ---
+    if not initialize_mt5():
+        return  # Stop if MT5 connection failed
+
     print(f"Bot starting in {config.MODE} mode...")
     print(f"Trading pairs: {config.PAIRS}")
     print(f"Lot size: {config.LOT_SIZE}")
@@ -47,4 +66,7 @@ def run_bot():
 
 
 if __name__ == "__main__":
-    run_bot()
+    try:
+        run_bot()
+    finally:
+        mt5.shutdown()
