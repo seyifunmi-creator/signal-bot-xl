@@ -1,47 +1,52 @@
 # dashboard.py
-
 import config
-from datetime import datetime
 from colorama import Fore, Style, init
+
+# Initialize colorama
 init(autoreset=True)
 
 def show_dashboard(trades):
-    active_trades = [t for t in trades if t['status'] in ['OPEN', 'BE', 'PARTIAL']]
-    closed_trades = [t for t in trades if t['status'] == 'CLOSED']
-
+    """
+    Display the dashboard in the console.
+    Compact table for core info, TPs listed below.
+    """
+    # Header
     print("\n=== DASHBOARD ===")
-    print(f"Mode: {config.MODE} | Active trades: {len(active_trades)} | Closed trades: {len(closed_trades)} | Balance: {config.BALANCE}\n")
+    print(f"Mode: {config.MODE} | Active trades: {len(trades)} | Closed trades: {sum(t['status']=='CLOSED' for t in trades)} | Balance: {config.BALANCE}")
+    print("\nPAIR     DIR   ENTRY      NOW        SL       P/L      TP HIT   STATUS")
+    print("-"*70)
 
-    # Table header
-    print(f"{'PAIR':<8} {'DIR':<5} {'ENTRY':<10} {'NOW':<10} {'SL':<10} {'TP1-TP4':<30} {'P/L':<10} {'TP HIT':<8} {'STATUS':<12}")
-    print("-"*105)
-
-    for t in active_trades:
+    for t in trades:
         pair = t['pair']
         direction = t['direction']
-        entry = f"{t['entry']:.5f}"
-        now = f"{t.get('current_price', t['entry']):.5f}"
-        sl = f"{t['sl']:.5f}"
-        tp_str = ','.join([f"{x:.5f}" for x in t['tp_levels']])
-        pl = t.get('profit', 0.0)
-        current_tp = ','.join([str(i+1) for i in range(len(t['tp_levels'])) if i < t.get('current_tp', 0)])
-        status = t.get('status', 'OPEN')
+        entry = t['entry']
+        now = t['now']
+        sl = t['sl']
+        pl = t['live_pl']
+        tp_hit = ','.join(map(str, t['tp_hit'])) if t['tp_hit'] else "-"
+        status = t['status']
 
-        # --- Color rules ---
-        pl_color = Fore.GREEN if pl > 0 else Fore.RED
-        status_color = Fore.YELLOW if status in ['PARTIAL', 'BE'] else Fore.WHITE
+        # Color coding
+        if pl > 0:
+            pl_colored = Fore.GREEN + f"{pl:.2f}" + Style.RESET_ALL
+        elif pl < 0:
+            pl_colored = Fore.RED + f"{pl:.2f}" + Style.RESET_ALL
+        else:
+            pl_colored = f"{pl:.2f}"
 
-        print(f"{pair:<8} {direction:<5} {entry:<10} {now:<10} {sl:<10} "
-              f"{tp_str:<30} {pl_color}{pl:<10.2f}{Style.RESET_ALL} "
-              f"{current_tp:<8} {status_color}{status:<12}{Style.RESET_ALL}")
+        if status == "PARTIAL":
+            status_colored = Fore.YELLOW + status + Style.RESET_ALL
+        elif status == "CLOSED":
+            status_colored = Fore.RED + status + Style.RESET_ALL
+        else:
+            status_colored = Fore.CYAN + status + Style.RESET_ALL
 
-    # --- Closed trades ---
-    if closed_trades:
-        print("\nClosed Trades:")
-        for t in closed_trades:
-            pair = t['pair']
-            direction = t['direction']
-            entry = f"{t['entry']:.5f}"
-            closed_at = t.get('closed_at', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            pl = f"{t.get('profit', 0.0):.2f}"
-            print(f"{pair} {direction} | Entry={entry} | Closed={closed_at} | P/L={pl}")
+        print(f"{pair:<7} {direction:<4} {entry:<10.5f} {now:<10.5f} {sl:<8.5f} {pl_colored:<8} {tp_hit:<7} {status_colored}")
+
+    # Show TP levels outside the table
+    print("\n--- Take Profit Levels ---")
+    for t in trades:
+        pair = t['pair']
+        tps = t['tp']
+        tp_str = ', '.join([f"TP{i+1}={tp:.5f}" for i, tp in enumerate(tps)])
+        print(f"{pair}: {tp_str}")
