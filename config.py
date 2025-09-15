@@ -56,6 +56,10 @@ SHOW_WINRATE = True
 REFRESH_INTERVAL = 60       # seconds
 COLOR_OUTPUT = True
 
+# --- For main.py compatibility ---
+UPDATE_INTERVAL = REFRESH_INTERVAL
+
+
 # --- SAFETY ---
 AUTO_RESTART = True
 EQUITY_PROTECTION = True
