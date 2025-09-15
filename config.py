@@ -5,11 +5,11 @@
 # --- Set default mode for main.py ---
 MODE = "TEST"  # or MODE = TRADE_MODE if you want it linked to TRADE_MODE
 
-# --- ACCOUNT SETTINGS ---
-ACCOUNT_USERNAME = "demo_user"
-ACCOUNT_PASSWORD = "demo_pass"
-TRADE_MODE = "TEST"   # "TEST" or "LIVE"
-BROKER = "MetaTrader5"
+# --- MT5 CONNECTION SETTINGS ---
+MT5_LOGIN = 10007528925        # Your MT5 demo account number
+MT5_PASSWORD = "_7LxJKPs"  
+MT5_SERVER = "MetaQuotes-Demo"  # e.g. "Exness-MT5Trial", "ICMarketsSC-Demo"
+
 
 # --- RISK MANAGEMENT ---
 BALANCE = 100000
