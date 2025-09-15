@@ -49,6 +49,7 @@ BACKTEST_END = "2024-12-31"
 TRADE_LOG = "trade_log.csv"
 DAILY_REPORT = True
 REPORT_FILE = "daily_report.txt"
+LOG_FILE = TRADE_LOG
 
 # --- DASHBOARD SETTINGS ---
 SHOW_PNL = True
