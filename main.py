@@ -1,10 +1,12 @@
 # === main.py ===
 
+# main.py imports
 import time
 import config
-from trades import create_trade, update_trades, close_trade
+from trades import create_trade, update_trades
 from signals import generate_signal
 from dashboard import show_dashboard
+
 
 def run_bot():
     print(f"Bot starting in {config.MODE} mode...")
