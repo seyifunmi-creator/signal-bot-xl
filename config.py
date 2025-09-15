@@ -2,6 +2,9 @@
 # CONFIGURATION FILE
 # ===============================
 
+# --- Set default mode for main.py ---
+MODE = "TEST"  # or MODE = TRADE_MODE if you want it linked to TRADE_MODE
+
 # --- ACCOUNT SETTINGS ---
 ACCOUNT_USERNAME = "demo_user"
 ACCOUNT_PASSWORD = "demo_pass"
