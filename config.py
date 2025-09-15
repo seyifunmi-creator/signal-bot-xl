@@ -10,7 +10,6 @@ MT5_LOGIN = 96548932        # Your MT5 demo account number
 MT5_PASSWORD = "@1CxWrQp"  
 MT5_SERVER = "MetaQuotes-Demo"  # e.g. "Exness-MT5Trial", "ICMarketsSC-Demo"
 
-
 # --- RISK MANAGEMENT ---
 BALANCE = 100000
 RISK_PER_TRADE = 0.01       # 1% risk per trade
@@ -60,8 +59,24 @@ COLOR_OUTPUT = True
 # --- For main.py compatibility ---
 UPDATE_INTERVAL = REFRESH_INTERVAL
 
-
 # --- SAFETY ---
 AUTO_RESTART = True
 EQUITY_PROTECTION = True
 MIN_EQUITY = 5000           # stop if balance falls below
+
+# --- TAKE PROFIT & STOP LOSS SETTINGS ---
+TP_VALUES = {
+    "EURUSD": [30, 60, 90, 120],   # Forex TP1–TP4
+    "GBPUSD": [30, 60, 90, 120],
+    "USDJPY": [30, 60, 90, 120],
+    "USDCAD": [30, 60, 90, 120],
+    "XAUUSD": [50, 100, 150, 200], # Gold TP1–TP4
+}
+
+SL_VALUES = {
+    "EURUSD": 50,   # Forex SL
+    "GBPUSD": 50,
+    "USDJPY": 50,
+    "USDCAD": 50,
+    "XAUUSD": 70,   # Gold SL
+}
