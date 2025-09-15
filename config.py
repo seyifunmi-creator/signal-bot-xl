@@ -66,17 +66,12 @@ MIN_EQUITY = 5000           # stop if balance falls below
 
 # --- TAKE PROFIT & STOP LOSS SETTINGS ---
 TP_VALUES = {
-    "EURUSD": [30, 60, 90, 120],   # Forex TP1–TP4
-    "GBPUSD": [30, 60, 90, 120],
-    "USDJPY": [30, 60, 90, 120],
-    "USDCAD": [30, 60, 90, 120],
-    "XAUUSD": [50, 100, 150, 200], # Gold TP1–TP4
+    "FOREX": [30, 60, 90, 120],     # in pips
+    "GOLD":  [50, 100, 150, 200]    # in points ($0.50, $1.00, etc.)
 }
 
 SL_VALUES = {
-    "EURUSD": 50,   # Forex SL
-    "GBPUSD": 50,
-    "USDJPY": 50,
-    "USDCAD": 50,
-    "XAUUSD": 70,   # Gold SL
+    "FOREX": 50,   # in pips
+    "GOLD":  70    # in points
 }
+
