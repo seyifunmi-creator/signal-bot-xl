@@ -1,5 +1,3 @@
-# signals.py
-
 import MetaTrader5 as mt5
 import pandas as pd
 import config
@@ -38,13 +36,17 @@ def calculate_rsi(df, period=RSI_PERIOD):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def generate_signal(pair):
+def generate_signal(pair, return_values=False):
     """Generate BUY / SELL / None signal using EMA crossover + RSI filter"""
     if not in_session():
+        if return_values:
+            return None, 0, 0, 0
         return None  # skip outside session if session filter is on
 
     df = get_data(pair)
     if df is None or len(df) < max(EMA_SLOW, RSI_PERIOD):
+        if return_values:
+            return None, 0, 0, 0
         return None
 
     # --- EMA calculations ---
@@ -61,9 +63,12 @@ def generate_signal(pair):
 
     # --- Signal rules ---
     # Accuracy boost: trade only if RSI confirms trend direction
+    signal = None
     if ema_fast > ema_slow and rsi > 50:
-        return "BUY"
+        signal = "BUY"
     elif ema_fast < ema_slow and rsi < 50:
-        return "SELL"
-    else:
-        return None
+        signal = "SELL"
+
+    if return_values:
+        return signal, ema_fast, ema_slow, rsi
+    return signal
