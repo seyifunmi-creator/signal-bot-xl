@@ -52,19 +52,20 @@ def run_bot():
         # Generate signals for all pairs
         for pair in config.PAIRS:
             # --- Get signal and EMA/RSI for debug ---
-            # Make sure generate_signal supports return_values=True
             signal, ema_fast, ema_slow, rsi_val = generate_signal(pair, return_values=True)
 
+            # Always print placeholder signal first
+            print(f"[SIGNAL] {pair}: {signal}")
+
+            # Color output
             if config.COLOR_OUTPUT:
                 if signal == "BUY":
                     print(Fore.GREEN + f"[SIGNAL] {pair}: {signal}" + Style.RESET_ALL)
                 elif signal == "SELL":
                     print(Fore.RED + f"[SIGNAL] {pair}: {signal}" + Style.RESET_ALL)
-                else:
-                    # Debug for None signals
+                elif signal is None:
+                    # Print debug for None signals
                     print(Fore.YELLOW + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.4f} EMA_SLOW={ema_slow:.4f} RSI={rsi_val:.2f} → No trade" + Style.RESET_ALL)
-            else:
-                print(f"[SIGNAL] {pair}: {signal}")
 
             # --- Execute trade if signal is valid ---
             if signal in ["BUY", "SELL"]:
