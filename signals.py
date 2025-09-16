@@ -17,8 +17,8 @@ def in_session():
     end = datetime.strptime(config.SESSION_END, "%H:%M").time()
     return start <= now <= end
 
-def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
-    """Fetch historical data from MT5"""
+def get_data(pair, n=2000, timeframe=mt5.TIMEFRAME_M5):
+    """Fetch historical data from MT5, fallback to M1 if needed"""
     # Ensure symbol is available
     if not mt5.symbol_select(pair, True):
         print(f"[WARN] Symbol {pair} not available in MT5.")
@@ -26,8 +26,11 @@ def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
 
     rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
     if rates is None or len(rates) == 0:
-        print(f"[WARN] No data for {pair}, market may be closed.")
-        return None
+        # fallback to M1
+        rates = mt5.copy_rates_from_pos(pair, mt5.TIMEFRAME_M1, 0, n)
+        if rates is None or len(rates) == 0:
+            print(f"[WARN] No data for {pair}, market may be closed.")
+            return None
 
     df = pd.DataFrame(rates)
     df['time'] = pd.to_datetime(df['time'], unit='s')
@@ -47,7 +50,7 @@ def generate_signal(pair, return_values=False):
     if not in_session():
         if return_values:
             return None, 0, 0, 0
-        return None  # skip outside session if session filter is on
+        return None
 
     df = get_data(pair)
     if df is None or len(df) < max(EMA_SLOW, RSI_PERIOD):
@@ -68,7 +71,6 @@ def generate_signal(pair, return_values=False):
     rsi = df['rsi'].iloc[-1]
 
     # --- Signal rules ---
-    # Accuracy boost: trade only if RSI confirms trend direction
     signal = None
     if ema_fast > ema_slow and rsi > 50:
         signal = "BUY"
