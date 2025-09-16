@@ -1,5 +1,3 @@
-# === main.py ===
-
 # main.py imports
 import time
 import config
@@ -7,6 +5,10 @@ import MetaTrader5 as mt5
 from trades import create_trade, update_trades
 from signals import generate_signal
 from dashboard import show_dashboard
+from colorama import init, Fore, Style
+
+# Initialize colorama for colored output
+init(autoreset=True)
 
 
 def initialize_mt5():
@@ -49,9 +51,22 @@ def run_bot():
 
         # Generate signals for all pairs
         for pair in config.PAIRS:
-            signal = generate_signal(pair)
-            print(f"[SIGNAL] {pair}: {signal}")
+            # --- Get signal and EMA/RSI for debug ---
+            # Make sure generate_signal supports return_values=True
+            signal, ema_fast, ema_slow, rsi_val = generate_signal(pair, return_values=True)
 
+            if config.COLOR_OUTPUT:
+                if signal == "BUY":
+                    print(Fore.GREEN + f"[SIGNAL] {pair}: {signal}" + Style.RESET_ALL)
+                elif signal == "SELL":
+                    print(Fore.RED + f"[SIGNAL] {pair}: {signal}" + Style.RESET_ALL)
+                else:
+                    # Debug for None signals
+                    print(Fore.YELLOW + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.4f} EMA_SLOW={ema_slow:.4f} RSI={rsi_val:.2f} → No trade" + Style.RESET_ALL)
+            else:
+                print(f"[SIGNAL] {pair}: {signal}")
+
+            # --- Execute trade if signal is valid ---
             if signal in ["BUY", "SELL"]:
                 trade = create_trade(pair, signal, config.LOT_SIZE)
                 trades.append(trade)
