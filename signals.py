@@ -19,10 +19,16 @@ def in_session():
 
 def get_data(pair, n=1000, timeframe=mt5.TIMEFRAME_M5):
     """Fetch historical data from MT5"""
+    # Ensure symbol is available
+    if not mt5.symbol_select(pair, True):
+        print(f"[WARN] Symbol {pair} not available in MT5.")
+        return None
+
     rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
     if rates is None or len(rates) == 0:
         print(f"[WARN] No data for {pair}, market may be closed.")
         return None
+
     df = pd.DataFrame(rates)
     df['time'] = pd.to_datetime(df['time'], unit='s')
     df.set_index('time', inplace=True)
