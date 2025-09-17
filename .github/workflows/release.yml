@@ -24,12 +24,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller scikit-learn pandas
+          pip install pyinstaller scikit-learn pandas numpy
 
       - name: Build main.exe
         shell: cmd
         run: |
-          pyinstaller --clean --onefile --add-binary "ml_model.pkl;." --paths "." main.py --name "main"
+          pyinstaller --clean --onefile ^
+          --hidden-import=sklearn ^
+          --hidden-import=pandas ^
+          --hidden-import=numpy ^
+          --add-binary "ml_model.pkl;." ^
+          --add-data "trade.py;." ^
+          --add-data "trade;trade" ^
+          --paths "." main.py --name "main"
 
       - name: Upload main.exe to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
