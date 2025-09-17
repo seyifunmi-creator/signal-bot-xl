@@ -1,11 +1,12 @@
 # signals_ml.py
-import pandas as pd
-import pickle
-import sys
 import os
+import sys
+import pickle
+import pandas as pd
+from datetime import datetime
 
 # -----------------------------
-# Determine correct path for .exe or .py
+# Determine base path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
     base_path = sys._MEIPASS
@@ -22,7 +23,6 @@ log_path = os.path.join(base_path, "ml_signals_log.csv")
 try:
     with open(model_path, "rb") as f:
         model = pickle.load(f)
-    print("✅ ML model loaded successfully!")
 except Exception as e:
     print(f"❌ Failed to load ML model: {e}")
     model = None
@@ -30,30 +30,56 @@ except Exception as e:
 # -----------------------------
 # Generate signal for a pair
 # -----------------------------
-def generate_signal(pair, pair_data_dict, candles_per_tf_dict):
+def generate_signal(pair, pair_data_dict=None, candles_per_tf_dict=None):
     if model is None:
         return None
+
     try:
-        # Example: use last candle's OHLC as features (4-feature model)
-        last_data = pair_data_dict['M1'].iloc[-1]
-        X = [[last_data['Open'], last_data['High'], last_data['Low'], last_data['Close']]]
-        signal = model.predict(X)[0]
-        return "BUY" if signal == 1 else "SELL"
+        # Use last candle features if data exists
+        X = [[0, 0, 0, 0]]  # Default dummy features
+        if pair_data_dict:
+            df = pair_data_dict.get('M1')
+            if df is not None and not df.empty:
+                last_candle = df.iloc[-1]
+                X = [[
+                    last_candle['Open'],
+                    last_candle['High'],
+                    last_candle['Low'],
+                    last_candle['Close']
+                ]]
+        signal_num = model.predict(X)[0]
+        return "BUY" if signal_num == 1 else "SELL"
     except Exception as e:
         print(f"❌ Error generating signal: {e}")
         return None
 
 # -----------------------------
-# Log signal to CSV
+# Log multiple signals to CSV
+# -----------------------------
+def log_ml_signals(pairs):
+    if model is None:
+        return
+
+    log_entries = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for pair in pairs:
+        signal = generate_signal(pair)
+        log_entries.append({"Time": now, "Pair": pair, "Signal": signal})
+
+    df_log = pd.DataFrame(log_entries)
+    if os.path.exists(log_path):
+        df_log.to_csv(log_path, mode='a', index=False, header=False)
+    else:
+        df_log.to_csv(log_path, index=False)
+    return log_entries
+
+# -----------------------------
+# Log a single signal
 # -----------------------------
 def log_signal(pair, signal):
-    try:
-        df = pd.DataFrame([[pair, signal, pd.Timestamp.now()]],
-                          columns=['Pair','Signal','Timestamp'])
-        if not os.path.exists(log_path):
-            df.to_csv(log_path, index=False)
-        else:
-            df.to_csv(log_path, mode='a', header=False, index=False)
-        # print(f"✅ Signals logged successfully to {log_path}")
-    except Exception as e:
-        print(f"❌ Error logging signal: {e}")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    df_entry = pd.DataFrame([{"Time": now, "Pair": pair, "Signal": signal}])
+    if os.path.exists(log_path):
+        df_entry.to_csv(log_path, mode='a', index=False, header=False)
+    else:
+        df_entry.to_csv(log_path, index=False)
