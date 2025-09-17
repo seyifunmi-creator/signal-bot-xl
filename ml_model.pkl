@@ -1,10 +1,10 @@
 import pickle
 from sklearn.ensemble import RandomForestClassifier
 
-# Assume `model` is your trained RandomForestClassifier
-# Example: model.fit(X_train, y_train)
+# Example: load your trained model
+with open("ml_model.pkl", "rb") as f:
+    model = pickle.load(f)  # Make sure this works on your local machine
 
+# Save with protocol 4
 with open("ml_model.pkl", "wb") as f:
-    pickle.dump(model, f)
-
-print("ML model saved as ml_model.pkl")
+    pickle.dump(model, f, protocol=4)
