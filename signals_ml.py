@@ -1,15 +1,14 @@
 # signals_ml.py
-import os
-import sys
-import pickle
 import pandas as pd
-from datetime import datetime
+import pickle
+import sys
+import os
 
 # -----------------------------
-# Determine base path for .exe or .py
+# Determine correct path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
-    base_path = sys._MEIPASS  # PyInstaller .exe
+    base_path = sys._MEIPASS
 else:
     base_path = os.path.dirname(__file__)
 
@@ -18,7 +17,7 @@ model_path = os.path.join(base_path, "ml_model.pkl")
 log_path = os.path.join(base_path, "ml_signals_log.csv")
 
 # -----------------------------
-# Load ML model
+# Load trained ML model
 # -----------------------------
 try:
     with open(model_path, "rb") as f:
@@ -29,47 +28,32 @@ except Exception as e:
     model = None
 
 # -----------------------------
-# Generate signal
+# Generate signal for a pair
 # -----------------------------
-def generate_signal(df: pd.DataFrame) -> str:
-    """
-    df: DataFrame with columns ['Open','High','Low','Close']
-    Returns: 'BUY', 'SELL', or None
-    """
-    if model is None or df.empty:
+def generate_signal(pair, pair_data_dict, candles_per_tf_dict):
+    if model is None:
         return None
     try:
-        features = df[['Open','High','Low','Close']].values[-1].reshape(1, -1)
-        pred = model.predict(features)[0]
-        return "BUY" if pred == 1 else "SELL"
+        # Example: use last candle's OHLC as features (4-feature model)
+        last_data = pair_data_dict['M1'].iloc[-1]
+        X = [[last_data['Open'], last_data['High'], last_data['Low'], last_data['Close']]]
+        signal = model.predict(X)[0]
+        return "BUY" if signal == 1 else "SELL"
     except Exception as e:
         print(f"❌ Error generating signal: {e}")
         return None
 
 # -----------------------------
-# Log ML signals
+# Log signal to CSV
 # -----------------------------
-def log_ml_signals(pairs: list):
-    """
-    pairs: list of string symbols, e.g. ['EURUSD','GBPUSD']
-    Logs signals to ml_signals_log.csv
-    """
-    if model is None:
-        print("❌ Cannot log signals: ML model not loaded")
-        return
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logs = []
-
-    for pair in pairs:
-        # Dummy data for logging
-        df = pd.DataFrame([[1,1,0,0]], columns=['Open','High','Low','Close'])
-        signal = generate_signal(df)
-        logs.append({'Datetime': now, 'Pair': pair, 'Signal': signal})
-        print(f"{pair} → Signal={signal}")
-
-    df_log = pd.DataFrame(logs)
-    if not os.path.exists(log_path):
-        df_log.to_csv(log_path, index=False)
-    else:
-        df_log.to_csv(log_path, mode='a', header=False, index=False)
+def log_signal(pair, signal):
+    try:
+        df = pd.DataFrame([[pair, signal, pd.Timestamp.now()]],
+                          columns=['Pair','Signal','Timestamp'])
+        if not os.path.exists(log_path):
+            df.to_csv(log_path, index=False)
+        else:
+            df.to_csv(log_path, mode='a', header=False, index=False)
+        # print(f"✅ Signals logged successfully to {log_path}")
+    except Exception as e:
+        print(f"❌ Error logging signal: {e}")
