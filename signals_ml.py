@@ -1,18 +1,18 @@
 # signals_ml.py
-import pandas as pd
-import pickle
-from datetime import datetime
-import sys
 import os
+import sys
+import pickle
+import pandas as pd
+from datetime import datetime
 
 # -----------------------------
-# Determine correct path for .exe or .py
+# Determine base path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
-    # Running as .exe
+    # Running as PyInstaller .exe
     base_path = sys._MEIPASS
 else:
-    # Running as .py
+    # Running as script
     base_path = os.path.dirname(__file__)
 
 # Paths
@@ -20,58 +20,63 @@ model_path = os.path.join(base_path, "ml_model.pkl")
 log_path = os.path.join(base_path, "ml_signals_log.csv")
 
 # -----------------------------
-# Load trained ML model
+# Load ML model safely
 # -----------------------------
-with open(model_path, "rb") as f:
-    model = pickle.load(f)
+try:
+    with open(model_path, "rb") as f:
+        model = pickle.load(f)
+    print("✅ ML model loaded successfully!")
+except FileNotFoundError:
+    print(f"❌ ML model not found at {model_path}")
+    model = None
+except pickle.UnpicklingError:
+    print("❌ Failed to load ML model (protocol issue).")
+    model = None
 
 # -----------------------------
-# Prepare features for ML
+# Example function: generate signal
 # -----------------------------
-def prepare_features(pair_data_dict, candles_per_tf_dict=None):
+def generate_signal(df: pd.DataFrame) -> str:
     """
-    Combine multiple timeframe data for ML input.
-    pair_data_dict: {'M1': df1, 'M5': df5, 'M15': df15, 'H1': dfH1, ...}
-    candles_per_tf_dict: number of recent candles per timeframe
-    Returns a single-row DataFrame ready for model.predict()
+    df: DataFrame with columns ['Open','High','Low','Close']
+    Returns: 'BUY', 'SELL', or None
     """
-    features = pd.DataFrame()
-    for tf, df in pair_data_dict.items():
-        if df is not None and not df.empty:
-            n_candles = candles_per_tf_dict.get(tf, 50) if candles_per_tf_dict else 50
-            last_close = df['Close'].tail(n_candles).reset_index(drop=True)
-            last_close.index = [f'{tf}_Close_{i}' for i in range(len(last_close))]
-            features = pd.concat([features, last_close], axis=0)
-    return features.to_frame().T  # single-row DataFrame
-
-# -----------------------------
-# Generate ML signal
-# -----------------------------
-def generate_signal(pair, pair_data_dict, candles_per_tf_dict=None):
-    """
-    Returns 'BUY', 'SELL', or None
-    """
+    if model is None or df.empty:
+        return None
     try:
-        X = prepare_features(pair_data_dict, candles_per_tf_dict)
-        if X.empty:
-            return None
-        prediction = model.predict(X)
-        if prediction[0] == 1:
-            return "BUY"
-        elif prediction[0] == -1:
-            return "SELL"
-        else:
-            return None
+        # Replace this with your real features
+        features = df[['Open','High','Low','Close']].values[-1].reshape(1, -1)
+        pred = model.predict(features)[0]
+        return "BUY" if pred == 1 else "SELL"
     except Exception as e:
-        print(f"[ERROR] Failed to generate signal for {pair}: {e}")
+        print(f"❌ Error generating signal: {e}")
         return None
 
 # -----------------------------
-# Log signals for backtesting
+# Log ML signals
 # -----------------------------
-def log_signal(pair, signal):
+def log_ml_signals(pairs: list):
     """
-    Append signal to CSV for analysis
+    pairs: list of string symbols, e.g. ['EURUSD','GBPUSD']
+    Logs signals to ml_signals_log.csv
     """
-    with open(log_path, "a", newline="") as f:
-        f.write(f"{datetime.now()},{pair},{signal}\n")
+    if model is None:
+        print("❌ Cannot log signals: ML model not loaded")
+        return
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logs = []
+
+    for pair in pairs:
+        # Example: generate signal using dummy price data
+        df = pd.DataFrame([[1,1,0,0]], columns=['Open','High','Low','Close'])  # Replace with real data fetch
+        signal = generate_signal(df)
+        logs.append({'Datetime': now, 'Pair': pair, 'Signal': signal})
+
+        print(f"{pair} → Signal={signal}")
+
+    df_log = pd.DataFrame(logs)
+    if not os.path.exists(log_path):
+        df_log.to_csv(log_path, index=False)
+    else:
+        df_log.to_csv(log_path, mode='a', header=False, index=False)
