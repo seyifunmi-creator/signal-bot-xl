@@ -29,7 +29,7 @@ jobs:
       - name: Build main.exe
         shell: cmd
         run: |
-          pyinstaller --clean --onefile --add-binary "ml_model.pkl;." main.py --name "main"
+          pyinstaller --clean --onefile --add-binary "ml_model.pkl;." --paths "." main.py --name "main"
 
       - name: Upload main.exe to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
