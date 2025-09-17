@@ -6,13 +6,13 @@ import sys
 import os
 from signals_ml import generate_signal, log_signal
 from trade import execute_trade
-from dashboard import update_dashboard
+from dashboard import show_dashboard  # keep dashboard separate
 
 # -----------------------------
 # Determine base path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
-    base_path = sys._MEIPASS
+    base_path = sys._MEIPASS  # PyInstaller .exe
 else:
     base_path = os.path.dirname(__file__)
 
@@ -50,7 +50,6 @@ if not mt5.initialize():
     print("[ERROR] MT5 initialization failed")
     mt5.shutdown()
     sys.exit()
-
 print("[INFO] Connected to MT5 successfully")
 
 # -----------------------------
@@ -65,6 +64,11 @@ def get_live_data(pair, timeframe, n=50):
     return df[['time','open','high','low','close']].rename(
         columns={'open':'Open','high':'High','low':'Low','close':'Close'}
     )
+
+# -----------------------------
+# Track trades for dashboard
+# -----------------------------
+trades_list = []  # Each trade: {"pair","dir","entry","now","sl","pl","tp_hit","status"}
 
 # -----------------------------
 # Main loop
@@ -82,14 +86,18 @@ try:
             # Generate signal
             signal = generate_signal(pair, pair_data_dict, candles_per_tf_dict)
 
-            # Execute trade and update dashboard
-            execute_trade(pair, signal)
-            update_dashboard(pair, signal)
+            # Execute trade and return trade info dict
+            trade_info = execute_trade(pair, signal)
+            if trade_info:
+                trades_list.append(trade_info)
 
             # Log signal using signals_ml.py
             log_signal(pair, signal)
 
             print(f"{pair} → Signal={signal}")
+
+        # Update dashboard (TP info included)
+        show_dashboard(trades_list)
 
         # Wait 60 seconds before next iteration
         time.sleep(60)
