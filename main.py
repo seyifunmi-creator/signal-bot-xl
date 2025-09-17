@@ -49,6 +49,9 @@ def run_bot():
     while True:
         print(f"\n[INFO] Cycle started at {time.strftime('%H:%M:%S')}")
 
+        # Collect latest snapshot for dashboard
+        dashboard_snapshot = []
+
         # Generate signals for all pairs
         for pair in config.PAIRS:
             # --- Get signal and EMA/RSI for debug ---
@@ -65,18 +68,31 @@ def run_bot():
                     print(Fore.RED + f"[SIGNAL] {pair}: {signal}" + Style.RESET_ALL)
                 elif signal is None:
                     # Print debug for None signals
-                    print(Fore.YELLOW + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.4f} EMA_SLOW={ema_slow:.4f} RSI={rsi_val:.2f} → No trade" + Style.RESET_ALL)
+                    print(
+                        Fore.YELLOW
+                        + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.4f} EMA_SLOW={ema_slow:.4f} RSI={rsi_val:.2f} → No trade"
+                        + Style.RESET_ALL
+                    )
 
             # --- Execute trade if signal is valid ---
             if signal in ["BUY", "SELL"]:
                 trade = create_trade(pair, signal, config.LOT_SIZE)
                 trades.append(trade)
 
+            # Add snapshot for dashboard (always include EMA/RSI)
+            dashboard_snapshot.append({
+                "pair": pair,
+                "signal": signal,
+                "ema_fast": round(ema_fast, 4),
+                "ema_slow": round(ema_slow, 4),
+                "rsi": round(rsi_val, 2),
+            })
+
         # Update all open trades (SL/TP/BE/partial closes)
         trades = update_trades(trades)
 
-        # Show dashboard
-        show_dashboard(trades)
+        # Show dashboard (now with safe snapshot, no `t` error)
+        show_dashboard(trades, dashboard_snapshot)
 
         time.sleep(config.UPDATE_INTERVAL)
 
