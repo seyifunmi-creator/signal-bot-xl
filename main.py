@@ -4,7 +4,7 @@ import pandas as pd
 import time
 import sys
 import os
-from signals_ml import generate_signal, log_ml_signals
+from signals_ml import generate_signal, log_signal
 from trade import execute_trade
 from dashboard import update_dashboard
 
@@ -17,11 +17,18 @@ else:
     base_path = os.path.dirname(__file__)
 
 # -----------------------------
+# Ask user if starting in test mode
+# -----------------------------
+start_test = input("Start in test mode? (y/n): ").strip().lower()
+TEST_MODE = start_test == 'y'
+if TEST_MODE:
+    print("[INFO] Running in TEST MODE (no live trades)")
+
+# -----------------------------
 # Trading pairs and timeframes
 # -----------------------------
 pairs = ['EURUSD','GBPUSD','USDJPY','USDCAD','XAUUSD']
 
-# MetaTrader5 timeframes
 timeframes = {
     'M1': mt5.TIMEFRAME_M1,
     'M5': mt5.TIMEFRAME_M5,
@@ -29,7 +36,6 @@ timeframes = {
     'H1': mt5.TIMEFRAME_H1
 }
 
-# Number of candles per timeframe
 candles_per_tf_dict = {
     'M1': 50,
     'M5': 30,
@@ -50,10 +56,6 @@ print("[INFO] Connected to MT5 successfully")
 # Fetch live data
 # -----------------------------
 def get_live_data(pair, timeframe, n=50):
-    """
-    Fetch last n candlesticks for a pair
-    Returns pandas DataFrame with Open/High/Low/Close
-    """
     rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
     if rates is None or len(rates) == 0:
         return pd.DataFrame()
@@ -69,31 +71,28 @@ def get_live_data(pair, timeframe, n=50):
 try:
     while True:
         print("\n[INFO] Fetching live ML signals...")
-        ml_signals_logs = []  # store signals for logging
-
         for pair in pairs:
-            # Fetch data for each timeframe
+            # Fetch multiple timeframe data
             pair_data_dict = {
                 tf: get_live_data(pair, tf_id, candles_per_tf_dict.get(tf, 50))
                 for tf, tf_id in timeframes.items()
             }
 
-            # For ML, we only need the most recent timeframe data (e.g., M1)
-            df_latest = pair_data_dict['M1']
-            signal = generate_signal(df_latest)
+            # Generate signal using ML
+            signal = generate_signal(pair, pair_data_dict, candles_per_tf_dict)
 
-            # Execute trade and update dashboard
-            execute_trade(pair, signal)
+            # Execute trade only if not in TEST_MODE
+            if not TEST_MODE:
+                execute_trade(pair, signal)
+
+            # Update dashboard regardless of test mode
             update_dashboard(pair, signal)
 
-            # Store for ML logging
-            ml_signals_logs.append({'Pair': pair, 'Signal': signal})
+            # Log signal using signals_ml.py
+            log_signal(pair, signal)
 
             # Print for monitoring
             print(f"{pair} → Signal={signal}")
-
-        # Log all ML signals at once
-        log_ml_signals(pairs)
 
         # Wait 60 seconds before next iteration
         time.sleep(60)
