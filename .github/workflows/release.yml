@@ -25,11 +25,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
-
+      
       - name: Build main.exe
         run: |
-          pyinstaller --onefile main.py --name "main"
+          pyinstaller --onefile --add-data "ml_model.pkl;." main.py --name "main"
 
+  
       - name: Upload main.exe to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
