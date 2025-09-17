@@ -4,7 +4,7 @@ import pandas as pd
 import time
 import sys
 import os
-from signals_ml import generate_signal, log_signal
+from signals_ml import generate_signal, log_ml_signals
 from trade import execute_trade
 from dashboard import update_dashboard
 
@@ -69,25 +69,31 @@ def get_live_data(pair, timeframe, n=50):
 try:
     while True:
         print("\n[INFO] Fetching live ML signals...")
+        ml_signals_logs = []  # store signals for logging
+
         for pair in pairs:
-            # Fetch multiple timeframe data
+            # Fetch data for each timeframe
             pair_data_dict = {
                 tf: get_live_data(pair, tf_id, candles_per_tf_dict.get(tf, 50))
                 for tf, tf_id in timeframes.items()
             }
 
-            # Generate signal
-            signal = generate_signal(pair, pair_data_dict, candles_per_tf_dict)
+            # For ML, we only need the most recent timeframe data (e.g., M1)
+            df_latest = pair_data_dict['M1']
+            signal = generate_signal(df_latest)
 
             # Execute trade and update dashboard
             execute_trade(pair, signal)
             update_dashboard(pair, signal)
 
-            # Log signal using signals_ml.py (writes CSV next to .exe)
-            log_signal(pair, signal)
+            # Store for ML logging
+            ml_signals_logs.append({'Pair': pair, 'Signal': signal})
 
             # Print for monitoring
             print(f"{pair} → Signal={signal}")
+
+        # Log all ML signals at once
+        log_ml_signals(pairs)
 
         # Wait 60 seconds before next iteration
         time.sleep(60)
