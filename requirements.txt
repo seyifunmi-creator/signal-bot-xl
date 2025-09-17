@@ -1,5 +1,5 @@
 MetaTrader5
 pandas
-yfinance
+scikit-learn
 pyttsx3
 colorama
