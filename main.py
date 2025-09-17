@@ -2,14 +2,30 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import time
-from signals_ml import generate_signal
-from trade import execute_trade      # your existing trade logic
-from dashboard import update_dashboard  # your existing dashboard logic
+from signals_ml import generate_signal, log_signal
+from trade import execute_trade
+from dashboard import update_dashboard
 
 # -----------------------------
-# Trading pairs
+# Trading pairs and timeframes
 # -----------------------------
 pairs = ['EURUSD','GBPUSD','USDJPY','USDCAD','XAUUSD']
+
+# Dynamic timeframes dictionary
+timeframes = {
+    'M1': mt5.TIMEFRAME_M1,
+    'M5': mt5.TIMEFRAME_M5,
+    'M15': mt5.TIMEFRAME_M15,
+    'H1': mt5.TIMEFRAME_H1
+}
+
+# Number of candles per timeframe
+candles_per_tf_dict = {
+    'M1': 50,
+    'M5': 30,
+    'M15': 20,
+    'H1': 15
+}
 
 # -----------------------------
 # Initialize MT5
@@ -21,9 +37,9 @@ if not mt5.initialize():
 print("[INFO] Connected to MT5 successfully")
 
 # -----------------------------
-# Fetch live data from MT5
+# Fetch live data
 # -----------------------------
-def get_live_data(pair, n=50, timeframe=mt5.TIMEFRAME_M1):
+def get_live_data(pair, timeframe, n=50):
     """
     Fetch last n candlesticks for a pair
     Returns pandas DataFrame with Open/High/Low/Close
@@ -38,32 +54,35 @@ def get_live_data(pair, n=50, timeframe=mt5.TIMEFRAME_M1):
     )
 
 # -----------------------------
-# Main loop: live ML signals
+# Main loop
 # -----------------------------
 try:
     while True:
         print("\n[INFO] Fetching live ML signals...")
         for pair in pairs:
-            # Fetch live MT5 data
-            pair_data = get_live_data(pair)
+            # Fetch multiple timeframe data with variable candle counts
+            pair_data_dict = {
+                tf: get_live_data(pair, tf_id, candles_per_tf_dict.get(tf, 50))
+                for tf, tf_id in timeframes.items()
+            }
 
-            # Generate ML signal
-            signal = generate_signal(pair, pair_data)
+            # Generate signal
+            signal = generate_signal(pair, pair_data_dict, candles_per_tf_dict)
 
-            # Feed signal into your existing trade logic
+            # Execute trade and update dashboard
             execute_trade(pair, signal)
-
-            # Update dashboard with latest signal
             update_dashboard(pair, signal)
 
-            # Optional: print for monitoring
+            # Log signal to CSV
+            log_signal(pair, signal)
+
+            # Print for monitoring
             print(f"{pair} → Signal={signal}")
 
-        # Adjust interval as needed (e.g., 60 seconds)
+        # Adjust interval as needed (e.g., every 60 seconds)
         time.sleep(60)
 
 except KeyboardInterrupt:
     print("[INFO] Stopped by user")
-
 finally:
     mt5.shutdown()
