@@ -32,6 +32,10 @@ except Exception as e:
 # Generate signal
 # -----------------------------
 def generate_signal(df: pd.DataFrame) -> str:
+    """
+    df: DataFrame with columns ['Open','High','Low','Close']
+    Returns: 'BUY', 'SELL', or None
+    """
     if model is None or df.empty:
         return None
     try:
@@ -46,6 +50,10 @@ def generate_signal(df: pd.DataFrame) -> str:
 # Log ML signals
 # -----------------------------
 def log_ml_signals(pairs: list):
+    """
+    pairs: list of string symbols, e.g. ['EURUSD','GBPUSD']
+    Logs signals to ml_signals_log.csv
+    """
     if model is None:
         print("❌ Cannot log signals: ML model not loaded")
         return
@@ -54,7 +62,7 @@ def log_ml_signals(pairs: list):
     logs = []
 
     for pair in pairs:
-        # Dummy data to match model features
+        # Dummy data for logging
         df = pd.DataFrame([[1,1,0,0]], columns=['Open','High','Low','Close'])
         signal = generate_signal(df)
         logs.append({'Datetime': now, 'Pair': pair, 'Signal': signal})
