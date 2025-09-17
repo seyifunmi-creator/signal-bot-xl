@@ -28,10 +28,7 @@ jobs:
 
       - name: Re-save ML model with compatible pickle protocol
         shell: cmd
-        run: >
-          python -c "import pickle;
-          with open('ml_model.pkl','rb') as f: model=pickle.load(f);
-          with open('ml_model.pkl','wb') as f: pickle.dump(model,f,protocol=4)"
+        run: python resave_model.py
 
       - name: Build main.exe
         shell: cmd
