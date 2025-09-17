@@ -24,11 +24,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller scikit-learn pandas
 
       - name: Build main.exe
         shell: cmd
-        run: pyinstaller --onefile --add-binary "ml_model.pkl;." main.py --name "main"
+        run: |
+          pyinstaller --clean --onefile --add-binary "ml_model.pkl;." main.py --name "main"
 
       - name: Upload main.exe to Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
