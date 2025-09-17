@@ -1,84 +1,69 @@
 # main.py
-import time
-import config
 import MetaTrader5 as mt5
-from trades import create_trade, update_trades
-from signals import generate_signal
-from dashboard import show_dashboard
-from colorama import init, Fore, Style
+import pandas as pd
+import time
+from signals_ml import generate_signal
+from trade import execute_trade      # your existing trade logic
+from dashboard import update_dashboard  # your existing dashboard logic
 
-# Initialize colorama
-init(autoreset=True)
+# -----------------------------
+# Trading pairs
+# -----------------------------
+pairs = ['EURUSD','GBPUSD','USDJPY','USDCAD','XAUUSD']
 
+# -----------------------------
+# Initialize MT5
+# -----------------------------
+if not mt5.initialize():
+    print("[ERROR] MT5 initialization failed")
+    mt5.shutdown()
+    exit()
+print("[INFO] Connected to MT5 successfully")
 
-def initialize_mt5():
-    """Initialize MT5 connection using config credentials"""
-    if not mt5.initialize(
-        login=config.MT5_LOGIN,
-        password=config.MT5_PASSWORD,
-        server=config.MT5_SERVER
-    ):
-        print("[ERROR] MT5 initialization failed")
-        print(mt5.last_error())
-        return False
-    print("[INFO] Connected to MT5 successfully")
-    return True
+# -----------------------------
+# Fetch live data from MT5
+# -----------------------------
+def get_live_data(pair, n=50, timeframe=mt5.TIMEFRAME_M1):
+    """
+    Fetch last n candlesticks for a pair
+    Returns pandas DataFrame with Open/High/Low/Close
+    """
+    rates = mt5.copy_rates_from_pos(pair, timeframe, 0, n)
+    if rates is None or len(rates) == 0:
+        return pd.DataFrame()
+    df = pd.DataFrame(rates)
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    return df[['time','open','high','low','close']].rename(
+        columns={'open':'Open','high':'High','low':'Low','close':'Close'}
+    )
 
-
-def run_bot():
-    # --- Initialize MT5 ---
-    if not initialize_mt5():
-        return
-
-    print(f"Bot starting in {config.MODE} mode...")
-    print(f"Trading pairs: {config.PAIRS}")
-    print(f"Lot size: {config.LOT_SIZE}")
-    print(f"Update interval: {config.UPDATE_INTERVAL} seconds")
-    print(f"Logging trades to: {config.LOG_FILE}")
-
-    mode_input = input("Start in live mode? (y/n): ").strip().lower()
-    if mode_input == "y":
-        config.MODE = "LIVE"
-        print("[INFO] Running in LIVE mode")
-    else:
-        config.MODE = "TEST"
-        print("[INFO] Running in TEST mode")
-
-    trades = []
-
+# -----------------------------
+# Main loop: live ML signals
+# -----------------------------
+try:
     while True:
-        print(f"\n[INFO] Cycle started at {time.strftime('%H:%M:%S')}")
-        ema_debug = []  # collect EMA/RSI debug for dashboard if no trades
+        print("\n[INFO] Fetching live ML signals...")
+        for pair in pairs:
+            # Fetch live MT5 data
+            pair_data = get_live_data(pair)
 
-        # --- Generate signals for all pairs ---
-        for pair in config.PAIRS:
-            signal, ema_fast, ema_slow, rsi_val = generate_signal(pair, return_values=True)
+            # Generate ML signal
+            signal = generate_signal(pair, pair_data)
 
-            if signal is None:
-                print(f"[SIGNAL] {pair}: None")
-                print(Fore.YELLOW + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.5f} EMA_SLOW={ema_slow:.5f} RSI={rsi_val:.2f} → No trade" + Style.RESET_ALL)
-                ema_debug.append((pair, ema_fast, ema_slow, rsi_val))
-            else:
-                if signal == "BUY":
-                    print(Fore.GREEN + f"[SIGNAL] {pair}: BUY" + Style.RESET_ALL)
-                elif signal == "SELL":
-                    print(Fore.RED + f"[SIGNAL] {pair}: SELL" + Style.RESET_ALL)
+            # Feed signal into your existing trade logic
+            execute_trade(pair, signal)
 
-                # --- Place trade ---
-                trade = create_trade(pair, signal, config.LOT_SIZE)
-                trades.append(trade)
+            # Update dashboard with latest signal
+            update_dashboard(pair, signal)
 
-        # --- Update trades ---
-        trades = update_trades(trades)
+            # Optional: print for monitoring
+            print(f"{pair} → Signal={signal}")
 
-        # --- Show dashboard ---
-        show_dashboard(trades, ema_debug if len(trades) == 0 else None)
+        # Adjust interval as needed (e.g., 60 seconds)
+        time.sleep(60)
 
-        time.sleep(config.UPDATE_INTERVAL)
+except KeyboardInterrupt:
+    print("[INFO] Stopped by user")
 
-
-if __name__ == "__main__":
-    try:
-        run_bot()
-    finally:
-        mt5.shutdown()
+finally:
+    mt5.shutdown()
