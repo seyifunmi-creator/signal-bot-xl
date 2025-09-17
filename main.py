@@ -12,17 +12,9 @@ from dashboard import update_dashboard
 # Determine base path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
-    base_path = sys._MEIPASS  # for PyInstaller .exe
+    base_path = sys._MEIPASS
 else:
     base_path = os.path.dirname(__file__)
-
-# -----------------------------
-# Ask user if starting in test mode
-# -----------------------------
-start_test = input("Start in test mode? (y/n): ").strip().lower()
-TEST_MODE = start_test == 'y'
-if TEST_MODE:
-    print("[INFO] Running in TEST MODE (no live trades)")
 
 # -----------------------------
 # Trading pairs and timeframes
@@ -44,12 +36,21 @@ candles_per_tf_dict = {
 }
 
 # -----------------------------
+# Y/N start prompt
+# -----------------------------
+start_input = input("Start bot in live mode? (y/n): ").strip().lower()
+if start_input != 'y':
+    print("[INFO] Exiting...")
+    sys.exit()
+
+# -----------------------------
 # Initialize MT5
 # -----------------------------
 if not mt5.initialize():
     print("[ERROR] MT5 initialization failed")
     mt5.shutdown()
-    exit()
+    sys.exit()
+
 print("[INFO] Connected to MT5 successfully")
 
 # -----------------------------
@@ -78,20 +79,16 @@ try:
                 for tf, tf_id in timeframes.items()
             }
 
-            # Generate signal using ML
+            # Generate signal
             signal = generate_signal(pair, pair_data_dict, candles_per_tf_dict)
 
-            # Execute trade only if not in TEST_MODE
-            if not TEST_MODE:
-                execute_trade(pair, signal)
-
-            # Update dashboard regardless of test mode
+            # Execute trade and update dashboard
+            execute_trade(pair, signal)
             update_dashboard(pair, signal)
 
             # Log signal using signals_ml.py
             log_signal(pair, signal)
 
-            # Print for monitoring
             print(f"{pair} → Signal={signal}")
 
         # Wait 60 seconds before next iteration
