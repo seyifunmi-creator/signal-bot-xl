@@ -2,16 +2,26 @@
 import MetaTrader5 as mt5
 import pandas as pd
 import time
+import sys
+import os
 from signals_ml import generate_signal, log_signal
 from trade import execute_trade
 from dashboard import update_dashboard
+
+# -----------------------------
+# Determine base path for .exe or .py
+# -----------------------------
+if getattr(sys, 'frozen', False):
+    base_path = sys._MEIPASS  # for PyInstaller .exe
+else:
+    base_path = os.path.dirname(__file__)
 
 # -----------------------------
 # Trading pairs and timeframes
 # -----------------------------
 pairs = ['EURUSD','GBPUSD','USDJPY','USDCAD','XAUUSD']
 
-# Dynamic timeframes dictionary
+# MetaTrader5 timeframes
 timeframes = {
     'M1': mt5.TIMEFRAME_M1,
     'M5': mt5.TIMEFRAME_M5,
@@ -60,7 +70,7 @@ try:
     while True:
         print("\n[INFO] Fetching live ML signals...")
         for pair in pairs:
-            # Fetch multiple timeframe data with variable candle counts
+            # Fetch multiple timeframe data
             pair_data_dict = {
                 tf: get_live_data(pair, tf_id, candles_per_tf_dict.get(tf, 50))
                 for tf, tf_id in timeframes.items()
@@ -73,13 +83,13 @@ try:
             execute_trade(pair, signal)
             update_dashboard(pair, signal)
 
-            # Log signal to CSV
+            # Log signal using signals_ml.py (writes CSV next to .exe)
             log_signal(pair, signal)
 
             # Print for monitoring
             print(f"{pair} → Signal={signal}")
 
-        # Adjust interval as needed (e.g., every 60 seconds)
+        # Wait 60 seconds before next iteration
         time.sleep(60)
 
 except KeyboardInterrupt:
