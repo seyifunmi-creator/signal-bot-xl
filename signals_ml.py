@@ -2,11 +2,25 @@
 import pandas as pd
 import pickle
 from datetime import datetime
+import sys
+import os
+
+# -----------------------------
+# Determine correct path to ml_model.pkl
+# -----------------------------
+if getattr(sys, 'frozen', False):
+    # Running as .exe
+    base_path = sys._MEIPASS
+else:
+    # Running as .py
+    base_path = os.path.dirname(__file__)
+
+model_path = os.path.join(base_path, "ml_model.pkl")
 
 # -----------------------------
 # Load trained ML model
 # -----------------------------
-with open("ml_model.pkl", "rb") as f:
+with open(model_path, "rb") as f:
     model = pickle.load(f)
 
 # -----------------------------
@@ -57,5 +71,5 @@ def log_signal(pair, signal):
     """
     Append signal to CSV for analysis
     """
-    with open("ml_signals_log.csv", "a", newline="") as f:
+    with open(os.path.join(base_path, "ml_signals_log.csv"), "a", newline="") as f:
         f.write(f"{datetime.now()},{pair},{signal}\n")
