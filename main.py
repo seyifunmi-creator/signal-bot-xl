@@ -7,7 +7,7 @@ from signals import generate_signal
 from dashboard import show_dashboard
 from colorama import init, Fore, Style
 
-# Initialize colorama for colored output
+# Initialize colorama
 init(autoreset=True)
 
 
@@ -28,7 +28,7 @@ def initialize_mt5():
 def run_bot():
     # --- Initialize MT5 ---
     if not initialize_mt5():
-        return  # Stop if MT5 connection failed
+        return
 
     print(f"Bot starting in {config.MODE} mode...")
     print(f"Trading pairs: {config.PAIRS}")
@@ -48,32 +48,31 @@ def run_bot():
 
     while True:
         print(f"\n[INFO] Cycle started at {time.strftime('%H:%M:%S')}")
+        ema_debug = []  # collect EMA/RSI debug for dashboard if no trades
 
-        # Generate signals for all pairs
+        # --- Generate signals for all pairs ---
         for pair in config.PAIRS:
             signal, ema_fast, ema_slow, rsi_val = generate_signal(pair, return_values=True)
 
-            # Print only signal in live cycle
-            if config.COLOR_OUTPUT:
+            if signal is None:
+                print(f"[SIGNAL] {pair}: None")
+                print(Fore.YELLOW + f"[DEBUG] {pair} | EMA_FAST={ema_fast:.5f} EMA_SLOW={ema_slow:.5f} RSI={rsi_val:.2f} → No trade" + Style.RESET_ALL)
+                ema_debug.append((pair, ema_fast, ema_slow, rsi_val))
+            else:
                 if signal == "BUY":
                     print(Fore.GREEN + f"[SIGNAL] {pair}: BUY" + Style.RESET_ALL)
                 elif signal == "SELL":
                     print(Fore.RED + f"[SIGNAL] {pair}: SELL" + Style.RESET_ALL)
-                else:
-                    print(Fore.YELLOW + f"[SIGNAL] {pair}: None" + Style.RESET_ALL)
-            else:
-                print(f"[SIGNAL] {pair}: {signal}")
 
-            # --- Execute trade if signal is valid ---
-            if signal in ["BUY", "SELL"]:
+                # --- Place trade ---
                 trade = create_trade(pair, signal, config.LOT_SIZE)
                 trades.append(trade)
 
-        # Update all open trades (SL/TP/BE/partial closes)
+        # --- Update trades ---
         trades = update_trades(trades)
 
-        # Show dashboard with EMA/RSI context
-        show_dashboard(trades)
+        # --- Show dashboard ---
+        show_dashboard(trades, ema_debug if len(trades) == 0 else None)
 
         time.sleep(config.UPDATE_INTERVAL)
 
