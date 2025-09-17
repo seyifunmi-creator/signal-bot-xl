@@ -1,4 +1,5 @@
 # signals.py
+
 import MetaTrader5 as mt5
 import pandas as pd
 import config
@@ -10,8 +11,8 @@ EMA_SLOW = config.EMA_SLOW
 RSI_PERIOD = 14  # default, can be adjusted
 
 
+# Optional accuracy boost: only trade during session hours
 def in_session():
-    """Filter trading hours (optional)"""
     if not config.USE_SESSION_FILTER:
         return True
     now = datetime.now().time()
@@ -21,7 +22,7 @@ def in_session():
 
 
 def get_data(pair, n=2000, timeframe=mt5.TIMEFRAME_M5):
-    """Fetch historical data from MT5"""
+    """Fetch historical data from MT5; fallback to M1 if M5 empty"""
     if not mt5.symbol_select(pair, True):
         print(f"[WARN] Symbol {pair} not available")
         return None
@@ -35,8 +36,6 @@ def get_data(pair, n=2000, timeframe=mt5.TIMEFRAME_M5):
             return None
 
     df = pd.DataFrame(rates)
-    print(f"[DEBUG] {pair}: got {len(df)} bars")  # <-- check if enough data
-
     df['time'] = pd.to_datetime(df['time'], unit='s')
     df.set_index('time', inplace=True)
     return df
@@ -52,13 +51,17 @@ def calculate_rsi(df, period=RSI_PERIOD):
 
 
 def generate_signal(pair, return_values=False):
-    """Generate BUY / SELL / None signal"""
+    """Generate BUY / SELL / None signal with EMA + RSI filter"""
     if not in_session():
-        return (None, 0, 0, 0) if return_values else None
+        if return_values:
+            return None, 0, 0, 0
+        return None
 
     df = get_data(pair)
     if df is None or len(df) < max(EMA_SLOW, RSI_PERIOD):
-        return (None, 0, 0, 0) if return_values else None
+        if return_values:
+            return None, 0, 0, 0
+        return None
 
     # --- EMA calculations ---
     df['ema_fast'] = df['close'].ewm(span=EMA_FAST, adjust=False).mean()
@@ -68,9 +71,9 @@ def generate_signal(pair, return_values=False):
     df['rsi'] = calculate_rsi(df)
 
     # --- Latest values ---
-    ema_fast = df['ema_fast'].iloc[-1]
-    ema_slow = df['ema_slow'].iloc[-1]
-    rsi = df['rsi'].iloc[-1]
+    ema_fast = float(df['ema_fast'].iloc[-1])
+    ema_slow = float(df['ema_slow'].iloc[-1])
+    rsi = float(df['rsi'].iloc[-1])
 
     # --- Signal rules ---
     signal = None
@@ -79,4 +82,10 @@ def generate_signal(pair, return_values=False):
     elif ema_fast < ema_slow and rsi < 50:
         signal = "SELL"
 
-    return (signal, ema_fast, ema_slow, rsi) if return_values else signal
+    # --- Alert when signal is valid ---
+    if signal:
+        print(f"[ALERT] 🚨 {pair}: {signal} signal | EMA_FAST={ema_fast:.5f}, EMA_SLOW={ema_slow:.5f}, RSI={rsi:.2f}")
+
+    if return_values:
+        return signal, ema_fast, ema_slow, rsi
+    return signal
