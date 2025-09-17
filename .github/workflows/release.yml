@@ -26,10 +26,6 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Re-save ML model with compatible pickle protocol
-        shell: cmd
-        run: python resave_model.py
-
       - name: Build main.exe
         shell: cmd
         run: pyinstaller --onefile --add-binary "ml_model.pkl;." main.py --name "main"
