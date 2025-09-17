@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@61a6322f88396a6271a6ee3565807d608ecaddd1
+        uses: actions/setup-python@v4
         with:
           python-version: 3.11
 
@@ -27,23 +27,18 @@ jobs:
           pip install pyinstaller
 
       - name: Re-save ML model with compatible pickle protocol
-        run: |
-          python - <<END
-          import pickle
-          # Load existing model
-          with open("ml_model.pkl", "rb") as f:
-              model = pickle.load(f)
-          # Re-save with protocol 4
-          with open("ml_model.pkl", "wb") as f:
-              pickle.dump(model, f, protocol=4)
-          END
-      
+        shell: cmd
+        run: >
+          python -c "import pickle;
+          with open('ml_model.pkl','rb') as f: model=pickle.load(f);
+          with open('ml_model.pkl','wb') as f: pickle.dump(model,f,protocol=4)"
+
       - name: Build main.exe
-        run: |
-          pyinstaller --onefile --add-binary "ml_model.pkl;." main.py --name "main"
+        shell: cmd
+        run: pyinstaller --onefile --add-binary "ml_model.pkl;." main.py --name "main"
 
       - name: Upload main.exe to Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+        uses: softprops/action-gh-release@v1
         with:
           files: dist/main.exe
         env:
