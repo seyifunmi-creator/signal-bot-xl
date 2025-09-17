@@ -1,9 +1,10 @@
 # signals_ml.py
 import pandas as pd
 import pickle
+from datetime import datetime
 
 # -----------------------------
-# Load your trained ML model
+# Load trained ML model
 # -----------------------------
 with open("ml_model.pkl", "rb") as f:
     model = pickle.load(f)
@@ -11,55 +12,50 @@ with open("ml_model.pkl", "rb") as f:
 # -----------------------------
 # Prepare features for ML
 # -----------------------------
-def prepare_features(pair_data):
+def prepare_features(pair_data_dict, candles_per_tf_dict=None):
     """
-    Convert live MT5 price data into features for your trained model.
-    - Ensure columns match what your model expects (e.g., Open, High, Low, Close, volume, indicators).
-    - This example assumes your model was trained on OHLC data.
+    Combine multiple timeframe data for ML input.
+    pair_data_dict: {'M1': df1, 'M5': df5, 'M15': df15, 'H1': dfH1, ...}
+    candles_per_tf_dict: number of recent candles per timeframe
+    Returns a single-row DataFrame ready for model.predict()
     """
-    if pair_data is None or pair_data.empty:
-        return pd.DataFrame()  # return empty DataFrame if no data
-
-    # Example: create features directly from OHLC
-    # Replace this section with your actual feature engineering
-    features = pair_data[['Open', 'High', 'Low', 'Close']].copy()
-    return features
+    features = pd.DataFrame()
+    for tf, df in pair_data_dict.items():
+        if df is not None and not df.empty:
+            n_candles = candles_per_tf_dict.get(tf, 50) if candles_per_tf_dict else 50
+            last_close = df['Close'].tail(n_candles).reset_index(drop=True)
+            last_close.index = [f'{tf}_Close_{i}' for i in range(len(last_close))]
+            features = pd.concat([features, last_close], axis=0)
+    return features.to_frame().T  # single-row DataFrame
 
 # -----------------------------
 # Generate ML signal
 # -----------------------------
-def generate_signal(pair, pair_data=None):
+def generate_signal(pair, pair_data_dict, candles_per_tf_dict=None):
     """
-    Returns 'BUY', 'SELL', or None for a trading pair based on ML prediction.
+    Returns 'BUY', 'SELL', or None
     """
     try:
-        X = prepare_features(pair_data)
+        X = prepare_features(pair_data_dict, candles_per_tf_dict)
         if X.empty:
             return None
-
-        # Predict the last row
-        prediction = model.predict(X.tail(1))
+        prediction = model.predict(X)
         if prediction[0] == 1:
             return "BUY"
         elif prediction[0] == -1:
             return "SELL"
         else:
             return None
-
     except Exception as e:
         print(f"[ERROR] Failed to generate signal for {pair}: {e}")
         return None
 
 # -----------------------------
-# Optional: log signals (for testing)
+# Log signals for backtesting
 # -----------------------------
-def log_ml_signals(pairs, live_data_func):
+def log_signal(pair, signal):
     """
-    pairs: list of trading pairs
-    live_data_func: function to fetch live MT5 data per pair
+    Append signal to CSV for analysis
     """
-    print("[INFO] Fetching ML signals for all pairs...\n")
-    for pair in pairs:
-        pair_data = live_data_func(pair)
-        signal = generate_signal(pair, pair_data)
-        print(f"{pair} → Signal={signal}")
+    with open("ml_signals_log.csv", "a", newline="") as f:
+        f.write(f"{datetime.now()},{pair},{signal}\n")
