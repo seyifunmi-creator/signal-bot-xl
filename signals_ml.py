@@ -6,7 +6,7 @@ import sys
 import os
 
 # -----------------------------
-# Determine correct path to ml_model.pkl
+# Determine correct path for .exe or .py
 # -----------------------------
 if getattr(sys, 'frozen', False):
     # Running as .exe
@@ -15,7 +15,9 @@ else:
     # Running as .py
     base_path = os.path.dirname(__file__)
 
+# Paths
 model_path = os.path.join(base_path, "ml_model.pkl")
+log_path = os.path.join(base_path, "ml_signals_log.csv")
 
 # -----------------------------
 # Load trained ML model
@@ -71,5 +73,5 @@ def log_signal(pair, signal):
     """
     Append signal to CSV for analysis
     """
-    with open(os.path.join(base_path, "ml_signals_log.csv"), "a", newline="") as f:
+    with open(log_path, "a", newline="") as f:
         f.write(f"{datetime.now()},{pair},{signal}\n")
