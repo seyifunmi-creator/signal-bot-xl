@@ -25,6 +25,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+
+      - name: Re-save ML model with compatible pickle protocol
+        run: |
+          python - <<END
+          import pickle
+          # Load existing model
+          with open("ml_model.pkl", "rb") as f:
+              model = pickle.load(f)
+          # Re-save with protocol 4
+          with open("ml_model.pkl", "wb") as f:
+              pickle.dump(model, f, protocol=4)
+          END
       
       - name: Build main.exe
         run: |
