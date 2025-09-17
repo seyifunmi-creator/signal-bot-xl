@@ -1,60 +1,38 @@
 # dashboard.py
 import config
-from colorama import Fore, Style, init
+from colorama import Fore, Style
 
-# Initialize colorama
-init(autoreset=True)
-
-def show_dashboard(trades):
-    """
-    Display the dashboard in the console.
-    Compact table for core info, TPs listed below.
-    """
-    # Header
+def show_dashboard(trades, ema_debug=None):
     print("\n=== DASHBOARD ===")
-    print(f"Mode: {config.MODE} | Active trades: {len(trades)} | Closed trades: {sum(t['status']=='CLOSED' for t in trades)} | Balance: {config.BALANCE:.2f}")
-    
+    active_trades = [t for t in trades if t["status"] == "OPEN"]
+    closed_trades = [t for t in trades if t["status"] == "CLOSED"]
+
+    print(
+        f"Mode: {config.MODE} | Active trades: {len(active_trades)} | Closed trades: {len(closed_trades)} | Balance: {config.BALANCE:.2f}"
+    )
+
     print("\nPAIR     DIR   ENTRY      NOW        SL       P/L      TP HIT   STATUS")
-    print("-"*70)
+    print("----------------------------------------------------------------------")
+    for trade in trades:
+        print(
+            f"{trade['pair']:7} {trade['dir']:4} {trade['entry']:.5f}  {trade['now']:.5f}  {trade['sl']:.5f}  {trade['pl']:.2f}  {trade['tp_hit']}   {trade['status']}"
+        )
 
-    for t in trades:
-        pair = t['pair']
-        direction = t['direction']
-        entry = t['entry']
-        now = t['now']
-        sl = t['sl']
-        pl = t['live_pl']
-        tp_hit = ','.join(map(str, t['tp_hit'])) if t['tp_hit'] else "-"
-        status = t['status']
+    # Only show EMA/RSI debug when no trades are active
+    if ema_debug and len(active_trades) == 0:
+        print("\n--- EMA/RSI Debug (No trades active) ---")
+        for pair, ema_fast, ema_slow, rsi_val in ema_debug:
+            if ema_fast > ema_slow:
+                color = Fore.GREEN
+            elif ema_fast < ema_slow:
+                color = Fore.RED
+            else:
+                color = Fore.YELLOW
 
-        # Color coding
-        if pl > 0:
-            pl_colored = Fore.GREEN + f"{pl:.2f}" + Style.RESET_ALL
-        elif pl < 0:
-            pl_colored = Fore.RED + f"{pl:.2f}" + Style.RESET_ALL
-        else:
-            pl_colored = f"{pl:.2f}"
+            print(
+                color
+                + f"{pair}: EMA_FAST={ema_fast:.5f} EMA_SLOW={ema_slow:.5f} RSI={rsi_val:.2f}"
+                + Style.RESET_ALL
+            )
 
-        if status == "PARTIAL":
-            status_colored = Fore.YELLOW + status + Style.RESET_ALL
-        elif status == "CLOSED":
-            status_colored = Fore.RED + status + Style.RESET_ALL
-        else:
-            status_colored = Fore.CYAN + status + Style.RESET_ALL
-
-        print(f"{pair:<7} {direction:<4} {entry:<10.5f} {now:<10.5f} {sl:<8.5f} {pl_colored:<8} {tp_hit:<7} {status_colored}")
-
-        # Show EMA/RSI only if this trade was "None"
-        if direction == "None":
-            ema = t.get("ema", 0)
-            ema_slow = t.get("ema_slow", 0)
-            rsi = t.get("rsi", 0)
-            print(f"   → EMA_FAST={ema:.5f} | EMA_SLOW={ema_slow:.5f} | RSI={rsi:.2f}")
-
-    # Show TP levels outside the table
-    print("\n--- Take Profit Levels ---")
-    for t in trades:
-        pair = t['pair']
-        tps = t['tp']
-        tp_str = ', '.join([f"TP{i+1}={tp:.5f}" for i, tp in enumerate(tps)])
-        print(f"{pair}: {tp_str}")
+    print("=================")
